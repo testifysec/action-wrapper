@@ -1,34 +1,121 @@
-name: "TestifySec Action Wrapper"
-description: "Downloads and executes another GitHub Action with optional command wrapping (strace, time, etc.)"
+name: "TestifySec Action Wrapper with Witness"
+description: "Downloads and executes another GitHub Action with Witness attestation"
 inputs:
+  # Action Reference
   action-ref:
     description: "Reference to the nested action (e.g., owner/repo@ref)"
     required: true
+
+  # Witness Installation
+  witness-version:
+    description: "Version of Witness to use"
+    required: false
+    default: "0.2.11"
+  witness-install-dir:
+    description: "Directory to install Witness"
+    required: false
+    default: "./"
+  
+  # Witness Core Options
+  step:
+    description: "Step name for the attestation"
+    required: true
+  attestations:
+    description: "Space-separated list of attestors to run"
+    required: true
+  outfile:
+    description: "Path to output file for the attestation"
+    required: false
+  
+  # Archivista Configuration
+  enable-archivista:
+    description: "Enable archivista for storing attestations"
+    required: false
+    default: "false"
+  archivista-server:
+    description: "Archivista server URL"
+    required: false
+  
+  # Certificate & Signing Options
+  certificate:
+    description: "Path to certificate file"
+    required: false
+  key:
+    description: "Path to key file"
+    required: false
+  intermediates:
+    description: "Space-separated list of intermediate certificate paths"
+    required: false
+    default: ""
+
+  # Sigstore Configuration
+  enable-sigstore:
+    description: "Enable sigstore for signing"
+    required: false
+    default: "false"
+  fulcio:
+    description: "Fulcio URL"
+    required: false
+  fulcio-oidc-client-id:
+    description: "Fulcio OIDC client ID"
+    required: false
+  fulcio-oidc-issuer:
+    description: "Fulcio OIDC issuer"
+    required: false
+  fulcio-token:
+    description: "Fulcio token"
+    required: false
+  
+  # Timestamp Configuration
+  timestamp-servers:
+    description: "Space-separated list of timestamp server URLs"
+    required: false
+    default: ""
+  
+  # Misc Options
+  trace:
+    description: "Enable tracing"
+    required: false
+  spiffe-socket:
+    description: "Path to SPIFFE socket"
+    required: false
+  
+  # Product Configuration
+  product-exclude-glob:
+    description: "Glob pattern for excluding products"
+    required: false
+  product-include-glob:
+    description: "Glob pattern for including products"
+    required: false
+  
+  # Attestor Export Options
+  attestor-link-export:
+    description: "Export link attestor"
+    required: false
+    default: "false"
+  attestor-sbom-export:
+    description: "Export SBOM attestor"
+    required: false
+    default: "false"
+  attestor-slsa-export:
+    description: "Export SLSA attestor"
+    required: false
+    default: "false"
+  attestor-maven-pom-path:
+    description: "Path to Maven POM file"
+    required: false
+  
+  # For backward compatibility - will pass these to the nested action
+  input-*:
+    description: "Any input with the prefix 'input-' will be passed to the nested action"
+    required: false
   extra-args:
     description: "Extra arguments to pass to the nested action (deprecated, use input-* instead)"
     required: false
-  wrapper-command:
-    description: "Command to wrap around the nested action execution (e.g., 'strace -f', 'time -v', etc.)"
-    required: false
-  enable-wrapper:
-    description: "Enable command wrapping (default: true)"
-    required: false
-    default: "true"
-  # For backward compatibility
-  strace-options:
-    description: "Options to pass to strace (deprecated, use wrapper-command instead)"
-    required: false
-  enable-strace:
-    description: "Enable strace instrumentation (deprecated, use enable-wrapper instead)"
-    required: false
-  # Any input with the prefix 'input-' will be passed to the nested action
-  # For example, input-who-to-greet will be passed as who-to-greet to the nested action
+
 outputs:
-  wrapper-log:
-    description: "Path to the output log file for the wrapper command (if enabled and applicable)"
-  # For backward compatibility
-  strace-log:
-    description: "Path to the strace log file (deprecated, use wrapper-log instead)"
+  git_oid:
+    description: "GitOID of the attestation (if created)"
 runs:
   using: "node16"
   main: "index.js"

@@ -1,11 +1,14 @@
 const core = require("@actions/core");
 const exec = require("@actions/exec");
+const { exit } = require("process");
+const process = require("process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const axios = require("axios");
 const unzipper = require("unzipper");
 const yaml = require("js-yaml");
+const tc = require("@actions/tool-cache");
 
 // Handle signals to ensure clean exit
 process.on('SIGINT', () => {
@@ -29,139 +32,121 @@ const actionTimeoutId = setTimeout(() => {
 actionTimeoutId.unref();
 
 async function run() {
-  // Track any child processes created
-  const childProcesses = [];
-  
-  // Register for process exits to ensure we clean up
-  process.on('beforeExit', () => {
-    core.debug(`Cleaning up any remaining child processes: ${childProcesses.length}`);
-    childProcesses.forEach(pid => {
-      try {
-        process.kill(pid, 'SIGTERM');
-      } catch (e) {
-        // Ignore errors when killing processes that might be gone
-      }
-    });
-  });
-  
   try {
-    // Get inputs
+    // Step 1: Get Witness-related inputs
+    const witnessVersion = core.getInput("witness-version") || "0.2.11";
+    const witnessInstallDir = core.getInput("witness-install-dir") || "./";
+    
+    // Step 2: First download Witness binary
+    await downloadWitness(witnessVersion, witnessInstallDir);
+    
+    // Step 3: Now handle the GitHub Action wrapping
     const actionRef = core.getInput("action-ref");
-    const extraArgs = core.getInput("extra-args") || "";
+    const downloadedActionDir = await downloadAndExtractAction(actionRef);
     
-    // Default wrapper settings
-    const defaultWrapperCommand = "strace -f -v -s 256 -e trace=file,process,network,signal,ipc,desc,memory";
+    // Step 4: Prepare witness command
+    const step = core.getInput("step");
+    const archivistaServer = core.getInput("archivista-server");
+    const attestations = core.getInput("attestations").split(" ");
+    const certificate = core.getInput("certificate");
+    const enableArchivista = core.getInput("enable-archivista") === "true";
+    let fulcio = core.getInput("fulcio");
+    let fulcioOidcClientId = core.getInput("fulcio-oidc-client-id");
+    let fulcioOidcIssuer = core.getInput("fulcio-oidc-issuer");
+    const fulcioToken = core.getInput("fulcio-token");
+    const intermediates = core.getInput("intermediates").split(" ");
+    const key = core.getInput("key");
+    let outfile = core.getInput("outfile");
+    outfile = outfile
+      ? outfile
+      : path.join(os.tmpdir(), step + "-attestation.json");
+    const productExcludeGlob = core.getInput("product-exclude-glob");
+    const productIncludeGlob = core.getInput("product-include-glob");
+    const spiffeSocket = core.getInput("spiffe-socket");
     
-    // Handle backward compatibility with strace-specific options
-    let enableWrapper = core.getInput("enable-wrapper").toLowerCase();
-    enableWrapper = enableWrapper === "" ? null : enableWrapper === "true";
+    let timestampServers = core.getInput("timestamp-servers");
+    const trace = core.getInput("trace");
+    const enableSigstore = core.getInput("enable-sigstore") === "true";
     
-    let enableStrace = core.getInput("enable-strace").toLowerCase();
-    enableStrace = enableStrace === "" ? null : enableStrace === "true";
+    const exportLink = core.getInput("attestor-link-export") === "true";
+    const exportSBOM = core.getInput("attestor-sbom-export") === "true";
+    const exportSLSA = core.getInput("attestor-slsa-export") === "true";
+    const mavenPOM = core.getInput("attestor-maven-pom-path");
     
-    // If enable-wrapper is not specified but enable-strace is, use enableStrace value
-    const isWrapperEnabled = enableWrapper !== null ? enableWrapper : 
-                           enableStrace !== null ? enableStrace : true;
+    // Step 5: Run the downloaded action with Witness
+    const witnessOutput = await runActionWithWitness(
+      downloadedActionDir,
+      {
+        step,
+        archivistaServer,
+        attestations,
+        certificate,
+        enableArchivista,
+        fulcio,
+        fulcioOidcClientId,
+        fulcioOidcIssuer,
+        fulcioToken,
+        intermediates,
+        key,
+        outfile,
+        productExcludeGlob,
+        productIncludeGlob,
+        spiffeSocket,
+        timestampServers,
+        trace,
+        enableSigstore,
+        exportLink,
+        exportSBOM,
+        exportSLSA,
+        mavenPOM,
+      }
+    );
     
-    // If wrapper-command is not specified but strace-options is, construct strace command
-    const straceOptions = core.getInput("strace-options") || "";
-    let wrapperCommand = core.getInput("wrapper-command") || "";
+    // Step 6: Process the output
+    const gitOIDs = extractDesiredGitOIDs(witnessOutput);
     
-    if (!wrapperCommand && straceOptions) {
-      wrapperCommand = `strace ${straceOptions}`;
-    } else if (!wrapperCommand) {
-      wrapperCommand = defaultWrapperCommand;
-    }
-    
-    core.info(`Command wrapper ${isWrapperEnabled ? 'enabled' : 'disabled'}: ${wrapperCommand}`);
-
-    // Parse action-ref (expects format: owner/repo@ref)
-    const [repo, ref] = parseActionRef(actionRef);
-    core.info(`Parsed repo: ${repo}, ref: ${ref}`);
-
-    // Construct URL for the repository zip archive
-    // Use proper URL format for GitHub archives (handle both branches and tags)
-    const isTag = !ref.includes('/');
-    const zipUrl = isTag
-      ? `https://github.com/${repo}/archive/refs/tags/${ref}.zip`
-      : `https://github.com/${repo}/archive/refs/heads/${ref}.zip`;
-    
-    core.info(`Downloading action from: ${zipUrl}`);
-
-    // Create a temporary directory for extraction
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nested-action-"));
-
-    try {
-      // Download and extract the zip archive
-      const response = await axios({
-        url: zipUrl,
-        method: "GET",
-        responseType: "stream",
-        validateStatus: function (status) {
-          return status >= 200 && status < 300; // Default
-        },
-        maxRedirects: 5 // Handle redirects
-      });
+    for (const gitOID of gitOIDs) {
+      console.log("Extracted GitOID:", gitOID);
       
-      await new Promise((resolve, reject) => {
-        response.data
-          .pipe(unzipper.Extract({ path: tempDir }))
-          .on("close", resolve)
-          .on("error", reject);
-      });
-      core.info(`Downloaded and extracted to ${tempDir}`);
-    } catch (error) {
-      if (error.response) {
-        core.error(`Download failed with status ${error.response.status}`);
-        if (isTag) {
-          // Try alternative URL format if first attempt failed
-          core.info("Attempting alternative download URL for branches...");
-          const altZipUrl = `https://github.com/${repo}/archive/refs/heads/${ref}.zip`;
-          core.info(`Trying alternative URL: ${altZipUrl}`);
-          
-          const altResponse = await axios({
-            url: altZipUrl,
-            method: "GET",
-            responseType: "stream",
-            maxRedirects: 5
+      // Print the GitOID to the output
+      core.setOutput("git_oid", gitOID);
+      
+      // Construct the artifact URL using Archivista server and GitOID
+      const artifactURL = `${archivistaServer}/download/${gitOID}`;
+      
+      // Add Job Summary with Markdown content
+      const summaryHeader = `
+## Attestations Created
+| Step | Attestors Run | Attestation GitOID
+| --- | --- | --- |
+`;
+      
+      // Try to access the step summary file
+      try {
+        if (process.env.GITHUB_STEP_SUMMARY) {
+          // Read the contents of the file
+          const summaryFile = fs.readFileSync(process.env.GITHUB_STEP_SUMMARY, {
+            encoding: "utf-8",
           });
           
-          await new Promise((resolve, reject) => {
-            altResponse.data
-              .pipe(unzipper.Extract({ path: tempDir }))
-              .on("close", resolve)
-              .on("error", reject);
-          });
-          core.info(`Downloaded and extracted from alternative URL to ${tempDir}`);
-        } else {
-          throw error;
+          // Check if the file contains the header
+          const headerExists = summaryFile.includes(summaryHeader.trim());
+          
+          // If the header does not exist, append it to the file
+          if (!headerExists) {
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summaryHeader);
+          }
+          
+          // Construct the table row for the current step
+          const tableRow = `| ${step} | ${attestations.join(", ")} | [${gitOID}](${artifactURL}) |\n`;
+          
+          // Append the table row to the file
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, tableRow);
         }
-      } else {
-        throw error;
+      } catch (error) {
+        core.warning(`Could not write to GitHub step summary: ${error.message}`);
       }
     }
-
-    // List contents of the temp directory for diagnostic purposes
-    core.debug(`Temporary directory contents: ${fs.readdirSync(tempDir).join(', ')}`);
-
-    // GitHub archives typically extract to a folder named "repo-ref"
-    const repoName = repo.split("/")[1];
-    const extractedFolder = path.join(tempDir, `${repoName}-${ref}`);
-    if (!fs.existsSync(extractedFolder)) {
-      // If default folder name doesn't exist, try finding based on content
-      const tempContents = fs.readdirSync(tempDir);
-      if (tempContents.length === 1 && fs.lstatSync(path.join(tempDir, tempContents[0])).isDirectory()) {
-        // If there's only one directory, use that one
-        const alternateFolder = path.join(tempDir, tempContents[0]);
-        core.info(`Using alternative extracted folder: ${alternateFolder}`);
-        return await processAction(alternateFolder, extraArgs, repo, isWrapperEnabled, wrapperCommand);
-      } else {
-        throw new Error(`Extracted folder ${extractedFolder} not found and could not determine alternative.`);
-      }
-    }
-
-    await processAction(extractedFolder, extraArgs, repo, isWrapperEnabled, wrapperCommand);
-    
   } catch (error) {
     core.setFailed(`Wrapper action failed: ${error.message}`);
     if (error.response) {
@@ -170,7 +155,186 @@ async function run() {
   }
 }
 
-async function processAction(actionDir, extraArgs, repo, isWrapperEnabled, wrapperCommand) {
+// Download and install Witness
+async function downloadWitness(version, installDir) {
+  // Check if Witness is already in the tool cache
+  let witnessPath = tc.find("witness", version);
+  console.log("Cached Witness Path: " + witnessPath);
+  
+  if (!witnessPath) {
+    console.log("Witness not found in cache, downloading now");
+    let witnessTar;
+    
+    // Determine the OS-specific download URL
+    if (process.platform === "win32") {
+      witnessTar = await tc.downloadTool(
+        "https://github.com/in-toto/witness/releases/download/v" +
+          version +
+          "/witness_" +
+          version +
+          "_windows_amd64.tar.gz"
+      );
+    } else if (process.platform === "darwin") {
+      witnessTar = await tc.downloadTool(
+        "https://github.com/in-toto/witness/releases/download/v" +
+          version +
+          "/witness_" +
+          version +
+          "_darwin_amd64.tar.gz"
+      );
+    } else {
+      witnessTar = await tc.downloadTool(
+        "https://github.com/in-toto/witness/releases/download/v" +
+          version +
+          "/witness_" +
+          version +
+          "_linux_amd64.tar.gz"
+      );
+    }
+
+    // Create the install directory if it doesn't exist
+    if (!fs.existsSync(installDir)) {
+      console.log("Creating witness install directory at " + installDir);
+      fs.mkdirSync(installDir, { recursive: true });
+    }
+
+    // Extract and cache Witness
+    console.log("Extracting witness at: " + installDir);
+    witnessPath = await tc.extractTar(witnessTar, installDir);
+    
+    const cachedPath = await tc.cacheFile(
+      path.join(witnessPath, "witness"),
+      "witness",
+      "witness",
+      version
+    );
+    console.log("Witness cached at: " + cachedPath);
+    
+    witnessPath = cachedPath;
+  }
+
+  // Add Witness to the PATH
+  core.addPath(witnessPath);
+  return witnessPath;
+}
+
+// Download and extract a GitHub Action
+async function downloadAndExtractAction(actionRef) {
+  // Parse action-ref (expects format: owner/repo@ref)
+  const [repo, ref] = parseActionRef(actionRef);
+  core.info(`Parsed repo: ${repo}, ref: ${ref}`);
+
+  // Construct URL for the repository zip archive
+  // Use proper URL format for GitHub archives (handle both branches and tags)
+  const isTag = !ref.includes('/');
+  const zipUrl = isTag
+    ? `https://github.com/${repo}/archive/refs/tags/${ref}.zip`
+    : `https://github.com/${repo}/archive/refs/heads/${ref}.zip`;
+  
+  core.info(`Downloading action from: ${zipUrl}`);
+
+  // Create a temporary directory for extraction
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nested-action-"));
+
+  try {
+    // Download and extract the zip archive
+    const response = await axios({
+      url: zipUrl,
+      method: "GET",
+      responseType: "stream",
+      validateStatus: function (status) {
+        return status >= 200 && status < 300; // Default
+      },
+      maxRedirects: 5 // Handle redirects
+    });
+    
+    await new Promise((resolve, reject) => {
+      response.data
+        .pipe(unzipper.Extract({ path: tempDir }))
+        .on("close", resolve)
+        .on("error", reject);
+    });
+    core.info(`Downloaded and extracted to ${tempDir}`);
+  } catch (error) {
+    if (error.response) {
+      core.error(`Download failed with status ${error.response.status}`);
+      if (isTag) {
+        // Try alternative URL format if first attempt failed
+        core.info("Attempting alternative download URL for branches...");
+        const altZipUrl = `https://github.com/${repo}/archive/refs/heads/${ref}.zip`;
+        core.info(`Trying alternative URL: ${altZipUrl}`);
+        
+        const altResponse = await axios({
+          url: altZipUrl,
+          method: "GET",
+          responseType: "stream",
+          maxRedirects: 5
+        });
+        
+        await new Promise((resolve, reject) => {
+          altResponse.data
+            .pipe(unzipper.Extract({ path: tempDir }))
+            .on("close", resolve)
+            .on("error", reject);
+        });
+        core.info(`Downloaded and extracted from alternative URL to ${tempDir}`);
+      } else {
+        throw error;
+      }
+    } else {
+      throw error;
+    }
+  }
+
+  // List contents of the temp directory for diagnostic purposes
+  core.debug(`Temporary directory contents: ${fs.readdirSync(tempDir).join(', ')}`);
+
+  // GitHub archives typically extract to a folder named "repo-ref"
+  const repoName = repo.split("/")[1];
+  const extractedFolder = path.join(tempDir, `${repoName}-${ref}`);
+  if (!fs.existsSync(extractedFolder)) {
+    // If default folder name doesn't exist, try finding based on content
+    const tempContents = fs.readdirSync(tempDir);
+    if (tempContents.length === 1 && fs.lstatSync(path.join(tempDir, tempContents[0])).isDirectory()) {
+      // If there's only one directory, use that one
+      const alternateFolder = path.join(tempDir, tempContents[0]);
+      core.info(`Using alternative extracted folder: ${alternateFolder}`);
+      return alternateFolder;
+    } else {
+      throw new Error(`Extracted folder ${extractedFolder} not found and could not determine alternative.`);
+    }
+  }
+
+  return extractedFolder;
+}
+
+// Run an action with Witness
+async function runActionWithWitness(actionDir, witnessOptions) {
+  const {
+    step,
+    archivistaServer,
+    attestations,
+    certificate,
+    enableArchivista,
+    fulcio,
+    fulcioOidcClientId,
+    fulcioOidcIssuer,
+    fulcioToken,
+    intermediates,
+    key,
+    outfile,
+    productExcludeGlob,
+    productIncludeGlob,
+    spiffeSocket,
+    timestampServers,
+    trace,
+    enableSigstore,
+    exportLink,
+    exportSBOM,
+    exportSLSA,
+    mavenPOM,
+  } = witnessOptions;
+
   // Read action.yml from the downloaded action
   const actionYmlPath = path.join(actionDir, "action.yml");
   // Some actions use action.yaml instead of action.yml
@@ -228,180 +392,134 @@ async function processAction(actionDir, extraArgs, repo, isWrapperEnabled, wrapp
     envVars[`INPUT_${name.toUpperCase()}`] = nestedInputs[name];
   });
   
-  // For backwards compatibility, also support the extra-args parameter
-  const args = extraArgs.split(/\s+/).filter((a) => a); // split and remove empty strings
+  // Build the witness run command
+  const cmd = ["run"];
+
+  if (enableSigstore) {
+    fulcio = fulcio || "https://fulcio.sigstore.dev";
+    fulcioOidcClientId = fulcioOidcClientId || "sigstore";
+    fulcioOidcIssuer = fulcioOidcIssuer || "https://oauth2.sigstore.dev/auth";
+    timestampServers = "https://freetsa.org/tsr " + timestampServers;
+  }
+
+  if (attestations.length) {
+    attestations.forEach((attestation) => {
+      attestation = attestation.trim();
+      if (attestation.length > 0) {
+        cmd.push(`-a=${attestation}`);
+      }
+    });
+  }
+
+  if (exportLink) cmd.push(`--attestor-link-export`);
+  if (exportSBOM) cmd.push(`--attestor-sbom-export`);
+  if (exportSLSA) cmd.push(`--attestor-slsa-export`);
+
+  if (mavenPOM) cmd.push(`--attestor-maven-pom-path=${mavenPOM}`);
+
+  if (certificate) cmd.push(`--certificate=${certificate}`);
+  if (enableArchivista) cmd.push(`--enable-archivista=${enableArchivista}`);
+  if (archivistaServer) cmd.push(`--archivista-server=${archivistaServer}`);
+  if (fulcio) cmd.push(`--signer-fulcio-url=${fulcio}`);
+  if (fulcioOidcClientId) cmd.push(`--signer-fulcio-oidc-client-id=${fulcioOidcClientId}`);
+  if (fulcioOidcIssuer) cmd.push(`--signer-fulcio-oidc-issuer=${fulcioOidcIssuer}`);
+  if (fulcioToken) cmd.push(`--signer-fulcio-token=${fulcioToken}`);
+
+  if (intermediates.length) {
+    intermediates.forEach((intermediate) => {
+      intermediate = intermediate.trim();
+      if (intermediate.length > 0) {
+        cmd.push(`-i=${intermediate}`);
+      }
+    });
+  }
+
+  if (key) cmd.push(`--key=${key}`);
+  if (productExcludeGlob) cmd.push(`--attestor-product-exclude-glob=${productExcludeGlob}`);
+  if (productIncludeGlob) cmd.push(`--attestor-product-include-glob=${productIncludeGlob}`);
+  if (spiffeSocket) cmd.push(`--spiffe-socket=${spiffeSocket}`);
+  if (step) cmd.push(`-s=${step}`);
+
+  if (timestampServers) {
+    const timestampServerValues = timestampServers.split(" ");
+    timestampServerValues.forEach((timestampServer) => {
+      timestampServer = timestampServer.trim();
+      if (timestampServer.length > 0) {
+        cmd.push(`--timestamp-servers=${timestampServer}`);
+      }
+    });
+  }
+
+  if (trace) cmd.push(`--trace=${trace}`);
+  if (outfile) cmd.push(`--outfile=${outfile}`);
   
-  // Common execution options
+  // Prepare the command to run the action
+  const nodeCmd = 'node';
+  const nodeArgs = [entryFile];
+  
+  // Execute the command and capture its output
+  const runArray = ["witness", ...cmd, "--", nodeCmd, ...nodeArgs],
+    commandString = runArray.join(" ");
+
+  core.info(`Running witness command: ${commandString}`);
+  
+  // Set up options for execution
   const execOptions = {
     cwd: actionDir,
     env: envVars,
     listeners: {
       stdout: (data) => {
-        const output = data.toString();
-        process.stdout.write(output);
+        process.stdout.write(data.toString());
       },
       stderr: (data) => {
-        const output = data.toString();
-        process.stderr.write(output);
-      },
-      debug: (message) => {
-        core.debug(message);
+        process.stderr.write(data.toString());
       }
-    },
-    ignoreReturnCode: false
+    }
   };
   
-  if (isWrapperEnabled && wrapperCommand) {
-    // Extract the command name and its arguments
-    const [wrapperCmd, ...wrapperArgs] = parseCommand(wrapperCommand);
-    
-    core.info(`Wrapper enabled: ${wrapperCmd} ${wrapperArgs.join(' ')}`);
-    
-    try {
-      // Check if the wrapper command is available
-      await exec.exec("which", [wrapperCmd]);
-      
-      // Determine whether we need to create an output log file
-      let wrapperLogFile = null;
-      
-      // Check if the command is strace (backward compatibility) or if command
-      // should output to a file (if it doesn't have -o or --output already)
-      const isStrace = wrapperCmd === 'strace';
-      const hasOutputOption = wrapperArgs.includes('-o') || wrapperArgs.includes('--output');
-      
-      // For strace or if no output option specified, create a log file
-      if ((isStrace || shouldCreateLogFile(wrapperCmd)) && !hasOutputOption) {
-        // Get repo name for the log file name
-        const repoName = repo.split("/")[1];
-        const timestamp = new Date().toISOString().replace(/:/g, '-');
-        wrapperLogFile = path.join(
-          process.env.GITHUB_WORKSPACE || '.', 
-          `${wrapperCmd}-${repoName}-${timestamp}.log`
-        );
-        
-        // Add output redirection option based on command type
-        if (isStrace) {
-          wrapperArgs.push('-o', wrapperLogFile);
-        } else if (wrapperCmd === 'time') {
-          // time uses -o for output
-          wrapperArgs.push('-o', wrapperLogFile);
-        } else {
-          // For other commands, we'll handle output redirection separately
-          // We'll capture the output and write it to a file
-        }
-        
-        core.info(`Command output will be saved to: ${wrapperLogFile}`);
-      }
-      
-      // Define the node command and arguments
-      const nodeCmd = "node";
-      const nodeArgs = [entryFile, ...args];
-      
-      // Execute the wrapped command
-      let cp;
-      if (wrapperLogFile && !hasOutputOption && !isStrace && wrapperCmd !== 'time') {
-        // For commands that don't have built-in output file support, 
-        // use shell redirection to log output
-        const redirectCmd = `${wrapperCmd} ${wrapperArgs.join(' ')} ${nodeCmd} ${nodeArgs.join(' ')} > ${wrapperLogFile} 2>&1`;
-        cp = await exec.getExecOutput('bash', ['-c', redirectCmd], execOptions);
-      } else {
-        // For commands with built-in output support or no logging needed
-        cp = await exec.getExecOutput(wrapperCmd, [...wrapperArgs, nodeCmd, ...nodeArgs], execOptions);
-      }
-      
-      core.debug(`Wrapper process completed with exit code: ${cp.exitCode}`);
-      
-      // Add helpful headers to the log file if it exists
-      if (wrapperLogFile && fs.existsSync(wrapperLogFile)) {
-        addHeaderToLogFile(
-          wrapperLogFile, 
-          wrapperCmd, 
-          wrapperArgs.join(' '), 
-          nodeCmd, 
-          nodeArgs.join(' '), 
-          repo
-        );
-      }
-      
-      // Set outputs
-      if (wrapperLogFile) {
-        core.setOutput("wrapper-log", wrapperLogFile);
-        // For backward compatibility if it's strace
-        if (isStrace) {
-          core.setOutput("strace-log", wrapperLogFile);
-        }
-      }
-      
-    } catch (error) {
-      // If the wrapper command is not available, fall back to running without it
-      core.warning(`Wrapper command '${wrapperCmd}' is not available: ${error.message}`);
-      core.info(`Executing nested action without wrapper: node ${entryFile} ${args.join(" ")}`);
-      
-      // Direct execution without wrapper
-      const cp = await exec.getExecOutput("node", [entryFile, ...args], execOptions);
-      core.debug(`Node process completed with exit code: ${cp.exitCode}`);
-    }
-  } else {
-    // Run without any wrapper
-    core.info(`Wrapper disabled. Executing nested action directly: node ${entryFile} ${args.join(" ")}`);
-    
-    // Direct execution without wrapper
-    const cp = await exec.getExecOutput("node", [entryFile, ...args], execOptions);
-    core.debug(`Node process completed with exit code: ${cp.exitCode}`);
-  }
-}
-
-// Helper function to parse a command string into command and arguments
-function parseCommand(commandString) {
-  // Simple space-based split for now
-  // This could be enhanced with proper shell-like parsing if needed
-  return commandString.trim().split(/\s+/).filter(Boolean);
-}
-
-// Helper function to determine if we should create a log file for this command
-function shouldCreateLogFile(command) {
-  // List of commands that typically produce output we'd want to capture
-  const loggableCommands = [
-    'strace', 'time', 'ltrace', 'perf', 'valgrind', 
-    'memcheck', 'gdb', 'prof', 'top', 'vmstat', 'iostat'
-  ];
+  // Execute and capture output
+  let output = '';
   
-  return loggableCommands.includes(command);
+  await exec.exec('sh', ['-c', commandString], {
+    ...execOptions,
+    listeners: {
+      ...execOptions.listeners,
+      stdout: (data) => {
+        const str = data.toString();
+        output += str;
+        process.stdout.write(str);
+      },
+      stderr: (data) => {
+        const str = data.toString();
+        output += str;
+        process.stderr.write(str);
+      }
+    }
+  });
+  
+  return output;
 }
 
-// Helper function to add a header to a log file
-function addHeaderToLogFile(logFile, wrapperCmd, wrapperArgs, cmd, cmdArgs, repo) {
-  try {
-    // Create a temporary file for the header
-    const headerFile = `${logFile}.header`;
-    const header = `
-#=============================================================================
-# ${wrapperCmd.toUpperCase()} log for GitHub Action: ${repo}
-# Date: ${new Date().toISOString()}
-# Wrapper: ${wrapperCmd} ${wrapperArgs}
-# Command: ${cmd} ${cmdArgs}
-#=============================================================================
+// Extract GitOIDs from witness output
+function extractDesiredGitOIDs(output) {
+  const lines = output.split("\n");
+  const desiredSubstring = "Stored in archivista as ";
 
-`;
-    fs.writeFileSync(headerFile, header);
-    
-    // Concatenate the header and the original output
-    const originalContent = fs.readFileSync(logFile);
-    fs.writeFileSync(logFile, Buffer.concat([
-      Buffer.from(header),
-      originalContent
-    ]));
-    
-    try {
-      // Delete the temporary header file
-      fs.unlinkSync(headerFile);
-    } catch (error) {
-      // Ignore any errors while deleting the temporary file
+  const matchArray = [];
+  console.log("Looking for GitOID in the output");
+  for (const line of lines) {
+    const startIndex = line.indexOf(desiredSubstring);
+    if (startIndex !== -1) {
+      console.log("Checking line: ", line);
+      const match = line.match(/[0-9a-fA-F]{64}/);
+      if (match) {
+        console.log("Found GitOID: ", match[0]);
+        matchArray.push(match[0]);
+      }
     }
-  } catch (error) {
-    // If there's any error with the header, just log it and continue
-    core.warning(`Could not add header to log file: ${error.message}`);
   }
+
+  return matchArray;
 }
 
 function parseActionRef(refString) {

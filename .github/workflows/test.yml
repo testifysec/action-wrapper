@@ -1,4 +1,4 @@
-name: Test Wrapper Action
+name: Test Witness Action Wrapper
 
 on:
   push:
@@ -21,59 +21,29 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Test wrapper with a simple action (no wrapper)
+      - name: Test wrapper with basic attestation
+        id: attestation
         uses: ./
         with:
+          # Action to run
           action-ref: "actions/hello-world-javascript-action@main"
-          enable-wrapper: "false"
           input-who-to-greet: "World"
-
-  test-strace:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '16'
-
-      - name: Install dependencies
-        run: npm ci
-      
-      - name: Install strace and set permissions
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y strace
-          # Set permissions to allow strace to work without privilege issues
-          echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope || true
-
-      - name: Test wrapper with strace
-        id: strace-test
-        uses: ./
-        with:
-          action-ref: "actions/hello-world-javascript-action@main"
-          wrapper-command: "strace -f -v -s 256 -e trace=file,process,network,signal,ipc,desc,memory"
-          input-who-to-greet: "Strace"
-      
-      - name: Check strace output
-        run: |
-          if [ -f "${{ steps.strace-test.outputs.wrapper-log }}" ]; then
-            echo "Wrapper log file exists at ${{ steps.strace-test.outputs.wrapper-log }}"
-            head -n 20 "${{ steps.strace-test.outputs.wrapper-log }}"
-          else
-            echo "Wrapper log file not found!"
-            exit 1
-          fi
-      
-      - name: Upload strace logs as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: strace-logs
-          path: ${{ steps.strace-test.outputs.wrapper-log }}
           
-  test-time:
+          # Witness configuration
+          step: "hello-world"
+          attestations: "command"
+          
+      - name: Check attestation file
+        run: |
+          if [[ -f "/tmp/hello-world-attestation.json" ]]; then
+            echo "Attestation created successfully"
+            jq . "/tmp/hello-world-attestation.json" | head -n 20
+          else
+            echo "Attestation file not found!"
+            exit 1
+          fi
+
+  test-multi-attestors:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -86,27 +56,33 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Test wrapper with time command
-        id: time-test
+      
+      - name: Test wrapper with multiple attestors
+        id: multi-attestation
         uses: ./
         with:
+          # Action to run
           action-ref: "actions/hello-world-javascript-action@main"
-          wrapper-command: "time -v"
-          input-who-to-greet: "Time"
+          input-who-to-greet: "Witness"
+          
+          # Witness configuration
+          step: "hello-world-multi"
+          attestations: "command attestor.git attestor.sbom"
+          attestor-sbom-export: "true"
+          outfile: "./multi-attestation.json"
       
-      - name: Check time output
+      - name: Check attestation file
         run: |
-          if [ -f "${{ steps.time-test.outputs.wrapper-log }}" ]; then
-            echo "Time log file exists at ${{ steps.time-test.outputs.wrapper-log }}"
-            cat "${{ steps.time-test.outputs.wrapper-log }}"
+          if [[ -f "./multi-attestation.json" ]]; then
+            echo "Multi-attestation created successfully"
+            jq . "./multi-attestation.json" | head -n 20
           else
-            echo "Time log file not found!"
+            echo "Multi-attestation file not found!"
             exit 1
           fi
       
-      - name: Upload time logs as artifact
+      - name: Upload attestation as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: time-logs
-          path: ${{ steps.time-test.outputs.wrapper-log }}
+          name: attestation-files
+          path: ./multi-attestation.json

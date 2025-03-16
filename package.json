@@ -1,7 +1,7 @@
 {
   "name": "action-wrapper",
-  "version": "1.0.0",
-  "description": "A GitHub Action that wraps other actions",
+  "version": "4.0.0",
+  "description": "A GitHub Action that wraps other actions with Witness attestation",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -9,13 +9,17 @@
   "keywords": [
     "github",
     "actions",
-    "wrapper"
+    "wrapper",
+    "witness",
+    "attestation",
+    "testifysec"
   ],
   "author": "TestifySec",
   "license": "MIT",
   "dependencies": {
     "@actions/core": "^1.10.0",
     "@actions/exec": "^1.1.1",
+    "@actions/tool-cache": "^2.0.1",
     "axios": "^1.3.4",
     "js-yaml": "^4.1.0",
     "unzipper": "^0.10.11"
