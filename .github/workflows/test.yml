@@ -5,6 +5,7 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:  # Allow manual triggering
     
 permissions:
   id-token: write # This is required for requesting the JWT
@@ -60,37 +61,109 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-      
-      - name: Test wrapper with multiple attestors
+        
+      - name: Test with Multiple Attestors
         id: multi-attestation
         uses: ./
         with:
           # Action to run
           action-ref: "actions/hello-world-javascript-action@main"
-          input-who-to-greet: "Witness"
+          input-who-to-greet: "Multi-Attestors"
           
           # Witness configuration
-          step: "hello-world-multi"
-          attestations: "command attestor.git attestor.sbom"
-          attestor-sbom-export: "true"
+          step: "multi-attestors"
+          attestations: "environment github"
           outfile: "./multi-attestation.json"
-      
+          
       - name: Check attestation file
         run: |
           if [[ -f "./multi-attestation.json" ]]; then
-            echo "Multi-attestation created successfully"
+            echo "Multi-attestor attestation created successfully"
             jq . "./multi-attestation.json" | head -n 20
           else
-            echo "Multi-attestation file not found!"
+            echo "Multi-attestor attestation file not found!"
             exit 1
           fi
-      
-      - name: Upload attestation as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: attestation-files
-          path: ./multi-attestation.json
           
+  test-input-forwarding:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Test Input Forwarding
+        id: input-forwarding
+        uses: ./
+        with:
+          # Action to run
+          action-ref: "actions/hello-world-javascript-action@main"
+          
+          # Test different input formats
+          input-who-to-greet: "Input Forwarding Test"
+          input-multi-word-param: "Multiple Words Parameter"
+          input-boolean-flag: "true"
+          
+          # Witness configuration
+          step: "input-forwarding"
+          attestations: "command environment"
+          outfile: "./input-forwarding.json"
+          
+      - name: Check attestation file
+        run: |
+          if [[ -f "./input-forwarding.json" ]]; then
+            echo "Input forwarding attestation created successfully"
+            jq . "./input-forwarding.json" | head -n 20
+          else
+            echo "Input forwarding attestation file not found!"
+            exit 1
+          fi
+          
+  test-direct-command:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Test Direct Command
+        id: direct-command
+        uses: ./
+        with:
+          # Direct command to run
+          command: "echo 'Direct command test' > direct-command-output.txt"
+          
+          # Witness configuration
+          step: "direct-command"
+          attestations: "command git"
+          outfile: "./direct-command.json"
+          
+      - name: Check attestation file and command output
+        run: |
+          if [[ -f "./direct-command.json" ]]; then
+            echo "Direct command attestation created successfully"
+            jq . "./direct-command.json" | head -n 20
+            
+            echo "Command output:"
+            cat direct-command-output.txt
+          else
+            echo "Direct command attestation file not found!"
+            exit 1
+          fi
   test-sigstore-archivista:
     runs-on: ubuntu-latest
     steps:
@@ -115,7 +188,7 @@ jobs:
           
           # Witness configuration
           step: test-sigstore
-          attestations: "environment git github slsa"
+          attestations: "environment github slsa"
           attestor-slsa-export: "true"
           enable-sigstore: "true"
           enable-archivista: "true"
@@ -146,48 +219,3 @@ jobs:
           name: sigstore-attestation
           path: ./sigstore-attestation.json
           
-  test-direct-command:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '16'
-
-      - name: Install dependencies
-        run: npm ci
-      
-      - name: Test direct command
-        id: direct-command
-        uses: ./
-        with:
-          # Direct command to run
-          command: "echo hello > hello.txt"
-          
-          # Witness configuration
-          step: "direct-command"
-          attestations: "command environment"
-          outfile: "./direct-command.json"
-      
-      - name: Check command output
-        run: |
-          if [ -f "hello.txt" ]; then
-            echo "Command output:"
-            cat hello.txt
-          else
-            echo "Command output file not found!"
-            exit 1
-          fi
-          
-      - name: Check attestation file
-        run: |
-          if [[ -f "./direct-command.json" ]]; then
-            echo "Direct command attestation created successfully"
-            jq . "./direct-command.json" | head -n 20
-          else
-            echo "Direct command attestation file not found!"
-            exit 1
-          fi
