@@ -382,6 +382,12 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   const inputPrefix = 'input-';
   const nestedInputs = {};
 
+  //log all the inputs
+  Object.keys(process.env).forEach(key => {
+    core.info(`Key: ${key}, Value: ${process.env[key]}`);
+  }
+  );
+
   // Get all inputs that start with 'input-'
   Object.keys(process.env)
     .filter(key => key.startsWith('INPUT_'))

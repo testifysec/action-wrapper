@@ -37,3 +37,4 @@ jobs:
           attestor-slsa-export: "true"
           enable-sigstore: "true"
           enable-archivista: "true"
+          input-who-to-greet: "input-Sigstore"    # Required input passed incorrectly
