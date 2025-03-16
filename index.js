@@ -40,24 +40,9 @@ async function run() {
     // Step 2: First download Witness binary
     await downloadWitness(witnessVersion, witnessInstallDir);
     
-    // Check if we have a direct command or if we're wrapping an action
-    const directCommand = core.getInput("command");
+    // Step 3: Now handle the GitHub Action wrapping
     const actionRef = core.getInput("action-ref");
-    
-    // If both are specified, action-ref takes precedence
-    let downloadedActionDir = null;
-    let commandToRun = null;
-    
-    if (actionRef) {
-      // Step 3a: Handle the GitHub Action wrapping
-      downloadedActionDir = await downloadAndExtractAction(actionRef);
-    } else if (directCommand) {
-      // Step 3b: Use the direct command (for backward compatibility)
-      commandToRun = directCommand;
-      core.info(`Using direct command mode: ${commandToRun}`);
-    } else {
-      throw new Error("Either 'action-ref' or 'command' input must be provided");
-    }
+    const downloadedActionDir = await downloadAndExtractAction(actionRef);
     
     // Step 4: Prepare witness command
     const step = core.getInput("step");
@@ -88,67 +73,34 @@ async function run() {
     const exportSLSA = core.getInput("attestor-slsa-export") === "true";
     const mavenPOM = core.getInput("attestor-maven-pom-path");
     
-    // Step 5: Run with Witness (either action or direct command)
-    let witnessOutput;
-    if (downloadedActionDir) {
-      // Run the downloaded action with Witness
-      witnessOutput = await runActionWithWitness(
-        downloadedActionDir,
-        {
-          step,
-          archivistaServer,
-          attestations,
-          certificate,
-          enableArchivista,
-          fulcio,
-          fulcioOidcClientId,
-          fulcioOidcIssuer,
-          fulcioToken,
-          intermediates,
-          key,
-          outfile,
-          productExcludeGlob,
-          productIncludeGlob,
-          spiffeSocket,
-          timestampServers,
-          trace,
-          enableSigstore,
-          exportLink,
-          exportSBOM,
-          exportSLSA,
-          mavenPOM,
-        }
-      );
-    } else {
-      // Run direct command with Witness
-      witnessOutput = await runDirectCommandWithWitness(
-        commandToRun,
-        {
-          step,
-          archivistaServer,
-          attestations,
-          certificate,
-          enableArchivista,
-          fulcio,
-          fulcioOidcClientId,
-          fulcioOidcIssuer,
-          fulcioToken,
-          intermediates,
-          key,
-          outfile,
-          productExcludeGlob,
-          productIncludeGlob,
-          spiffeSocket,
-          timestampServers,
-          trace,
-          enableSigstore,
-          exportLink,
-          exportSBOM,
-          exportSLSA,
-          mavenPOM,
-        }
-      );
-    }
+    // Step 5: Run the downloaded action with Witness
+    const witnessOutput = await runActionWithWitness(
+      downloadedActionDir,
+      {
+        step,
+        archivistaServer,
+        attestations,
+        certificate,
+        enableArchivista,
+        fulcio,
+        fulcioOidcClientId,
+        fulcioOidcIssuer,
+        fulcioToken,
+        intermediates,
+        key,
+        outfile,
+        productExcludeGlob,
+        productIncludeGlob,
+        spiffeSocket,
+        timestampServers,
+        trace,
+        enableSigstore,
+        exportLink,
+        exportSBOM,
+        exportSLSA,
+        mavenPOM,
+      }
+    );
     
     // Step 6: Process the output
     const gitOIDs = extractDesiredGitOIDs(witnessOutput);
@@ -568,140 +520,6 @@ function extractDesiredGitOIDs(output) {
   }
 
   return matchArray;
-}
-
-// Run a direct command with Witness
-async function runDirectCommandWithWitness(command, witnessOptions) {
-  const {
-    step,
-    archivistaServer,
-    attestations,
-    certificate,
-    enableArchivista,
-    fulcio,
-    fulcioOidcClientId,
-    fulcioOidcIssuer,
-    fulcioToken,
-    intermediates,
-    key,
-    outfile,
-    productExcludeGlob,
-    productIncludeGlob,
-    spiffeSocket,
-    timestampServers,
-    trace,
-    enableSigstore,
-    exportLink,
-    exportSBOM,
-    exportSLSA,
-    mavenPOM,
-  } = witnessOptions;
-
-  // Build the witness run command
-  const cmd = ["run"];
-
-  if (enableSigstore) {
-    fulcio = fulcio || "https://fulcio.sigstore.dev";
-    fulcioOidcClientId = fulcioOidcClientId || "sigstore";
-    fulcioOidcIssuer = fulcioOidcIssuer || "https://oauth2.sigstore.dev/auth";
-    timestampServers = "https://freetsa.org/tsr " + timestampServers;
-  }
-
-  if (attestations.length) {
-    attestations.forEach((attestation) => {
-      attestation = attestation.trim();
-      if (attestation.length > 0) {
-        cmd.push(`-a=${attestation}`);
-      }
-    });
-  }
-
-  if (exportLink) cmd.push(`--attestor-link-export`);
-  if (exportSBOM) cmd.push(`--attestor-sbom-export`);
-  if (exportSLSA) cmd.push(`--attestor-slsa-export`);
-
-  if (mavenPOM) cmd.push(`--attestor-maven-pom-path=${mavenPOM}`);
-
-  if (certificate) cmd.push(`--certificate=${certificate}`);
-  if (enableArchivista) cmd.push(`--enable-archivista=${enableArchivista}`);
-  if (archivistaServer) cmd.push(`--archivista-server=${archivistaServer}`);
-  if (fulcio) cmd.push(`--signer-fulcio-url=${fulcio}`);
-  if (fulcioOidcClientId) cmd.push(`--signer-fulcio-oidc-client-id=${fulcioOidcClientId}`);
-  if (fulcioOidcIssuer) cmd.push(`--signer-fulcio-oidc-issuer=${fulcioOidcIssuer}`);
-  if (fulcioToken) cmd.push(`--signer-fulcio-token=${fulcioToken}`);
-
-  if (intermediates.length) {
-    intermediates.forEach((intermediate) => {
-      intermediate = intermediate.trim();
-      if (intermediate.length > 0) {
-        cmd.push(`-i=${intermediate}`);
-      }
-    });
-  }
-
-  if (key) cmd.push(`--key=${key}`);
-  if (productExcludeGlob) cmd.push(`--attestor-product-exclude-glob=${productExcludeGlob}`);
-  if (productIncludeGlob) cmd.push(`--attestor-product-include-glob=${productIncludeGlob}`);
-  if (spiffeSocket) cmd.push(`--spiffe-socket=${spiffeSocket}`);
-  if (step) cmd.push(`-s=${step}`);
-
-  if (timestampServers) {
-    const timestampServerValues = timestampServers.split(" ");
-    timestampServerValues.forEach((timestampServer) => {
-      timestampServer = timestampServer.trim();
-      if (timestampServer.length > 0) {
-        cmd.push(`--timestamp-servers=${timestampServer}`);
-      }
-    });
-  }
-
-  if (trace) cmd.push(`--trace=${trace}`);
-  if (outfile) cmd.push(`--outfile=${outfile}`);
-  
-  // Parse the command into an array if it's not already
-  const commandArray = command.match(/(?:[^\s"]+|"[^"]*")+/g) || [command];
-  
-  // Execute the command and capture its output
-  const runArray = ["witness", ...cmd, "--", ...commandArray];
-  const commandString = runArray.join(" ");
-
-  core.info(`Running witness command: ${commandString}`);
-  
-  // Set up options for execution
-  const execOptions = {
-    cwd: process.env.GITHUB_WORKSPACE || process.cwd(),
-    env: process.env,
-    listeners: {
-      stdout: (data) => {
-        process.stdout.write(data.toString());
-      },
-      stderr: (data) => {
-        process.stderr.write(data.toString());
-      }
-    }
-  };
-  
-  // Execute and capture output
-  let output = '';
-  
-  await exec.exec('sh', ['-c', commandString], {
-    ...execOptions,
-    listeners: {
-      ...execOptions.listeners,
-      stdout: (data) => {
-        const str = data.toString();
-        output += str;
-        process.stdout.write(str);
-      },
-      stderr: (data) => {
-        const str = data.toString();
-        output += str;
-        process.stderr.write(str);
-      }
-    }
-  });
-  
-  return output;
 }
 
 function parseActionRef(refString) {
