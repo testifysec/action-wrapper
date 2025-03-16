@@ -74,6 +74,7 @@ jobs:
           # Action to run
           action-ref: "actions/hello-world-javascript-action@main"
           input-who-to-greet: "Sigstore"
+          who-to-greet: "Sigstore"
           
           # Witness configuration
           step: test-sigstore
