@@ -57,9 +57,7 @@ async function run() {
     const intermediates = core.getInput("intermediates").split(" ");
     const key = core.getInput("key");
     let outfile = core.getInput("outfile");
-    outfile = outfile
-      ? outfile
-      : path.join(os.tmpdir(), step + "-attestation.json");
+    outfile = outfile ? outfile : path.join(os.tmpdir(), step + "-attestation.json");
     const productExcludeGlob = core.getInput("product-exclude-glob");
     const productIncludeGlob = core.getInput("product-include-glob");
     const spiffeSocket = core.getInput("spiffe-socket");
@@ -107,40 +105,21 @@ async function run() {
 
     for (const gitOID of gitOIDs) {
       console.log("Extracted GitOID:", gitOID);
-
-      // Print the GitOID to the output
       core.setOutput("git_oid", gitOID);
-
-      // Construct the artifact URL using Archivista server and GitOID
       const artifactURL = `${archivistaServer}/download/${gitOID}`;
-
-      // Add Job Summary with Markdown content
       const summaryHeader = `
 ## Attestations Created
 | Step | Attestors Run | Attestation GitOID
 | --- | --- | --- |
 `;
-
-      // Try to access the step summary file
       try {
         if (process.env.GITHUB_STEP_SUMMARY) {
-          // Read the contents of the file
-          const summaryFile = fs.readFileSync(process.env.GITHUB_STEP_SUMMARY, {
-            encoding: "utf-8",
-          });
-
-          // Check if the file contains the header
+          const summaryFile = fs.readFileSync(process.env.GITHUB_STEP_SUMMARY, { encoding: "utf-8" });
           const headerExists = summaryFile.includes(summaryHeader.trim());
-
-          // If the header does not exist, append it to the file
           if (!headerExists) {
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summaryHeader);
           }
-
-          // Construct the table row for the current step
           const tableRow = `| ${step} | ${attestations.join(", ")} | [${gitOID}](${artifactURL}) |\n`;
-
-          // Append the table row to the file
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, tableRow);
         }
       } catch (error) {
@@ -155,53 +134,31 @@ async function run() {
   }
 }
 
-// Download and install Witness
 async function downloadWitness(version, installDir) {
-  // Check if Witness is already in the tool cache
   let witnessPath = tc.find("witness", version);
   console.log("Cached Witness Path: " + witnessPath);
-
   if (!witnessPath) {
     console.log("Witness not found in cache, downloading now");
     let witnessTar;
-
-    // Determine the OS-specific download URL
     if (process.platform === "win32") {
       witnessTar = await tc.downloadTool(
-        "https://github.com/in-toto/witness/releases/download/v" +
-        version +
-        "/witness_" +
-        version +
-        "_windows_amd64.tar.gz"
+        "https://github.com/in-toto/witness/releases/download/v" + version + "/witness_" + version + "_windows_amd64.tar.gz"
       );
     } else if (process.platform === "darwin") {
       witnessTar = await tc.downloadTool(
-        "https://github.com/in-toto/witness/releases/download/v" +
-        version +
-        "/witness_" +
-        version +
-        "_darwin_amd64.tar.gz"
+        "https://github.com/in-toto/witness/releases/download/v" + version + "/witness_" + version + "_darwin_amd64.tar.gz"
       );
     } else {
       witnessTar = await tc.downloadTool(
-        "https://github.com/in-toto/witness/releases/download/v" +
-        version +
-        "/witness_" +
-        version +
-        "_linux_amd64.tar.gz"
+        "https://github.com/in-toto/witness/releases/download/v" + version + "/witness_" + version + "_linux_amd64.tar.gz"
       );
     }
-
-    // Create the install directory if it doesn't exist
     if (!fs.existsSync(installDir)) {
       console.log("Creating witness install directory at " + installDir);
       fs.mkdirSync(installDir, { recursive: true });
     }
-
-    // Extract and cache Witness
     console.log("Extracting witness at: " + installDir);
     witnessPath = await tc.extractTar(witnessTar, installDir);
-
     const cachedPath = await tc.cacheFile(
       path.join(witnessPath, "witness"),
       "witness",
@@ -209,48 +166,31 @@ async function downloadWitness(version, installDir) {
       version
     );
     console.log("Witness cached at: " + cachedPath);
-
     witnessPath = cachedPath;
   }
-
-  // Add Witness to the PATH
   core.addPath(witnessPath);
   return witnessPath;
 }
 
-// Download and extract a GitHub Action
 async function downloadAndExtractAction(actionRef) {
-  // Parse action-ref (expects format: owner/repo@ref)
   const [repo, ref] = parseActionRef(actionRef);
   core.info(`Parsed repo: ${repo}, ref: ${ref}`);
-
-  // Construct URL for the repository zip archive
-  // Use proper URL format for GitHub archives (handle both branches and tags)
   const isTag = !ref.includes('/');
   const zipUrl = isTag
     ? `https://github.com/${repo}/archive/refs/tags/${ref}.zip`
     : `https://github.com/${repo}/archive/refs/heads/${ref}.zip`;
-
   core.info(`Downloading action from: ${zipUrl}`);
-
-  // Create a temporary directory for extraction
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nested-action-"));
-
   try {
-    // Download and extract the zip archive
     const response = await axios({
       url: zipUrl,
       method: "GET",
       responseType: "stream",
-      validateStatus: function (status) {
-        return status >= 200 && status < 300; // Default
-      },
-      maxRedirects: 5 // Handle redirects
+      validateStatus: function (status) { return status >= 200 && status < 300; },
+      maxRedirects: 5
     });
-
     await new Promise((resolve, reject) => {
-      response.data
-        .pipe(unzipper.Extract({ path: tempDir }))
+      response.data.pipe(unzipper.Extract({ path: tempDir }))
         .on("close", resolve)
         .on("error", reject);
     });
@@ -259,21 +199,17 @@ async function downloadAndExtractAction(actionRef) {
     if (error.response) {
       core.error(`Download failed with status ${error.response.status}`);
       if (isTag) {
-        // Try alternative URL format if first attempt failed
         core.info("Attempting alternative download URL for branches...");
         const altZipUrl = `https://github.com/${repo}/archive/refs/heads/${ref}.zip`;
         core.info(`Trying alternative URL: ${altZipUrl}`);
-
         const altResponse = await axios({
           url: altZipUrl,
           method: "GET",
           responseType: "stream",
           maxRedirects: 5
         });
-
         await new Promise((resolve, reject) => {
-          altResponse.data
-            .pipe(unzipper.Extract({ path: tempDir }))
+          altResponse.data.pipe(unzipper.Extract({ path: tempDir }))
             .on("close", resolve)
             .on("error", reject);
         });
@@ -285,18 +221,12 @@ async function downloadAndExtractAction(actionRef) {
       throw error;
     }
   }
-
-  // List contents of the temp directory for diagnostic purposes
   core.debug(`Temporary directory contents: ${fs.readdirSync(tempDir).join(', ')}`);
-
-  // GitHub archives typically extract to a folder named "repo-ref"
   const repoName = repo.split("/")[1];
   const extractedFolder = path.join(tempDir, `${repoName}-${ref}`);
   if (!fs.existsSync(extractedFolder)) {
-    // If default folder name doesn't exist, try finding based on content
     const tempContents = fs.readdirSync(tempDir);
     if (tempContents.length === 1 && fs.lstatSync(path.join(tempDir, tempContents[0])).isDirectory()) {
-      // If there's only one directory, use that one
       const alternateFolder = path.join(tempDir, tempContents[0]);
       core.info(`Using alternative extracted folder: ${alternateFolder}`);
       return alternateFolder;
@@ -304,11 +234,9 @@ async function downloadAndExtractAction(actionRef) {
       throw new Error(`Extracted folder ${extractedFolder} not found and could not determine alternative.`);
     }
   }
-
   return extractedFolder;
 }
 
-// Run an action with Witness
 async function runActionWithWitness(actionDir, witnessOptions) {
   let {
     step,
@@ -335,13 +263,9 @@ async function runActionWithWitness(actionDir, witnessOptions) {
     mavenPOM,
   } = witnessOptions;
 
-  // Read action.yml from the downloaded action
   const actionYmlPath = path.join(actionDir, "action.yml");
-  // Some actions use action.yaml instead of action.yml
   const actionYamlPath = path.join(actionDir, "action.yaml");
-
   let actionConfig;
-
   if (fs.existsSync(actionYmlPath)) {
     actionConfig = yaml.load(fs.readFileSync(actionYmlPath, "utf8"));
   } else if (fs.existsSync(actionYamlPath)) {
@@ -356,36 +280,30 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   }
   core.info(`Nested action entry point: ${entryPoint}`);
 
-  // Construct full path to the nested action's entry file
   const entryFile = path.join(actionDir, entryPoint);
   if (!fs.existsSync(entryFile)) {
     throw new Error(`Entry file ${entryFile} does not exist.`);
   }
 
-  // Optionally, install dependencies if package.json exists
   const pkgJsonPath = path.join(actionDir, "package.json");
   if (fs.existsSync(pkgJsonPath)) {
     core.info("Installing dependencies for nested action...");
     await exec.exec("npm", ["install"], { cwd: actionDir });
   }
 
-  // Instead of filtering, pass all environment variables to the nested action
   const envVars = { ...process.env };
-
   // For testing, force the nested action to see a value for INPUT_WHO_TO_GREET
   envVars["INPUT_WHO_TO_GREET"] = envVars["INPUT_WHO_TO_GREET"] || "Sigstore";
   core.info(`For testing, setting INPUT_WHO_TO_GREET to: ${envVars["INPUT_WHO_TO_GREET"]}`);
 
   // Build the witness run command
   const cmd = ["run"];
-
   if (enableSigstore) {
     fulcio = fulcio || "https://fulcio.sigstore.dev";
     fulcioOidcClientId = fulcioOidcClientId || "sigstore";
     fulcioOidcIssuer = fulcioOidcIssuer || "https://oauth2.sigstore.dev/auth";
     timestampServers = "https://freetsa.org/tsr " + timestampServers;
   }
-
   if (attestations.length) {
     attestations.forEach((attestation) => {
       attestation = attestation.trim();
@@ -394,13 +312,10 @@ async function runActionWithWitness(actionDir, witnessOptions) {
       }
     });
   }
-
   if (exportLink) cmd.push(`--attestor-link-export`);
   if (exportSBOM) cmd.push(`--attestor-sbom-export`);
   if (exportSLSA) cmd.push(`--attestor-slsa-export`);
-
   if (mavenPOM) cmd.push(`--attestor-maven-pom-path=${mavenPOM}`);
-
   if (certificate) cmd.push(`--certificate=${certificate}`);
   if (enableArchivista) cmd.push(`--enable-archivista=${enableArchivista}`);
   if (archivistaServer) cmd.push(`--archivista-server=${archivistaServer}`);
@@ -408,7 +323,6 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   if (fulcioOidcClientId) cmd.push(`--signer-fulcio-oidc-client-id=${fulcioOidcClientId}`);
   if (fulcioOidcIssuer) cmd.push(`--signer-fulcio-oidc-issuer=${fulcioOidcIssuer}`);
   if (fulcioToken) cmd.push(`--signer-fulcio-token=${fulcioToken}`);
-
   if (intermediates.length) {
     intermediates.forEach((intermediate) => {
       intermediate = intermediate.trim();
@@ -417,13 +331,11 @@ async function runActionWithWitness(actionDir, witnessOptions) {
       }
     });
   }
-
   if (key) cmd.push(`--key=${key}`);
   if (productExcludeGlob) cmd.push(`--attestor-product-exclude-glob=${productExcludeGlob}`);
   if (productIncludeGlob) cmd.push(`--attestor-product-include-glob=${productIncludeGlob}`);
   if (spiffeSocket) cmd.push(`--spiffe-socket=${spiffeSocket}`);
   if (step) cmd.push(`-s=${step}`);
-
   if (timestampServers) {
     const timestampServerValues = timestampServers.split(" ");
     timestampServerValues.forEach((timestampServer) => {
@@ -433,39 +345,27 @@ async function runActionWithWitness(actionDir, witnessOptions) {
       }
     });
   }
-
   if (trace) cmd.push(`--trace=${trace}`);
   if (outfile) cmd.push(`--outfile=${outfile}`);
 
-  // Prepare the command to run the action
-  const nodeCmd = 'node';
-  const nodeArgs = [entryFile];
+  // Instead of invoking node directly, run a shell command that exports the variable before running node
+  const newNodeCmd = 'sh';
+  const newNodeArgs = ['-c', `export INPUT_WHO_TO_GREET=${envVars["INPUT_WHO_TO_GREET"]} && node ${entryFile}`];
+  const runArray = ["witness", ...cmd, "--", newNodeCmd, ...newNodeArgs];
+  const commandString = runArray.join(" ");
+  core.info(`Running witness command: ${commandString}`);
 
-  // Build the base command string from witness arguments
-  const baseCommand = ["witness", ...cmd, "--", nodeCmd, ...nodeArgs].join(" ");
-
-  // For testing, explicitly prepend the environment assignment for INPUT_WHO_TO_GREET
-  const prefixedCommand = `INPUT_WHO_TO_GREET=${envVars["INPUT_WHO_TO_GREET"]} ${baseCommand}`;
-  core.info(`Running witness command: ${prefixedCommand}`);
-
-  // Set up options for execution
   const execOptions = {
     cwd: actionDir,
     env: envVars,
     listeners: {
-      stdout: (data) => {
-        process.stdout.write(data.toString());
-      },
-      stderr: (data) => {
-        process.stderr.write(data.toString());
-      }
+      stdout: (data) => { process.stdout.write(data.toString()); },
+      stderr: (data) => { process.stderr.write(data.toString()); }
     }
   };
 
-  // Execute and capture output
   let output = '';
-
-  await exec.exec('sh', ['-c', prefixedCommand], {
+  await exec.exec('sh', ['-c', commandString], {
     ...execOptions,
     listeners: {
       ...execOptions.listeners,
@@ -485,11 +385,9 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   return output;
 }
 
-// Extract GitOIDs from witness output
 function extractDesiredGitOIDs(output) {
   const lines = output.split("\n");
   const desiredSubstring = "Stored in archivista as ";
-
   const matchArray = [];
   console.log("Looking for GitOID in the output");
   for (const line of lines) {
@@ -503,7 +401,6 @@ function extractDesiredGitOIDs(output) {
       }
     }
   }
-
   return matchArray;
 }
 
@@ -518,7 +415,6 @@ function parseActionRef(refString) {
 run()
   .then(() => {
     core.debug('Action wrapper completed successfully');
-    // Force exit to ensure we don't hang
     setTimeout(() => {
       core.debug('Forcing process exit to prevent hanging');
       process.exit(0);
@@ -526,7 +422,6 @@ run()
   })
   .catch(error => {
     core.setFailed(`Action wrapper failed: ${error.message}`);
-    // Force exit to ensure we don't hang
     setTimeout(() => {
       core.debug('Forcing process exit to prevent hanging');
       process.exit(1);
