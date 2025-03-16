@@ -540,28 +540,9 @@ async function runActionWithWitness(actionDir, witnessOptions) {
     await exec.exec("npm", ["install"], { cwd: actionDir });
   }
 
-  // Get all inputs with 'input-' prefix and pass them to the nested action
-  // We'll set these as environment variables that GitHub Actions uses
-  const inputPrefix = 'input-';
-  const nestedInputs = {};
-  
-  // Get all inputs that start with 'input-'
-  Object.keys(process.env)
-    .filter(key => key.startsWith('INPUT_'))
-    .forEach(key => {
-      const inputName = key.substring(6).toLowerCase(); // Remove 'INPUT_' prefix
-      // Convert underscores in input name to hyphens for matching with input-prefix
-      const normalizedInputName = inputName.replace(/_/g, '-');
-      
-      if (normalizedInputName.startsWith(inputPrefix)) {
-        const nestedInputName = normalizedInputName.substring(inputPrefix.length);
-        nestedInputs[nestedInputName] = process.env[key];
-        core.info(`Passing input '${nestedInputName}' to nested action`);
-      }
-    });
-    
-  // Debug all input values (use core.debug to reduce noise in normal execution)
-  core.debug("All available inputs:");
+  // Create a clean environment for the nested action with all inputs passed through
+  // Debug all available inputs (use core.debug to reduce noise in normal execution)
+  core.debug("All available inputs in the environment:");
   Object.keys(process.env)
     .filter(key => key.startsWith('INPUT_'))
     .forEach(key => {
@@ -571,53 +552,41 @@ async function runActionWithWitness(actionDir, witnessOptions) {
       core.debug(`${key}: ${value}`);
     });
   
-  // Set environment variables for the nested action
+  // Start with a copy of the current environment
   const envVars = { ...process.env };
   
-  // First add all inputs with the input- prefix
-  Object.keys(nestedInputs).forEach(name => {
-    // Convert hyphens to underscores for environment variables
-    const envName = name.replace(/-/g, '_').toUpperCase();
-    envVars[`INPUT_${envName}`] = nestedInputs[name];
-    core.info(`Set INPUT_${envName}=${nestedInputs[name]}`);
-  });
-  
-  // Also check if there are any inputs without the 'input-' prefix that might need to be passed
+  // Define a list of inputs that are specific to the wrapper action
+  const wrapperSpecificInputs = [
+    'ACTION_REF', 'COMMAND', 'WITNESS_VERSION', 'WITNESS_INSTALL_DIR', 
+    'STEP', 'ATTESTATIONS', 'OUTFILE', 'ENABLE_ARCHIVISTA', 'ARCHIVISTA_SERVER',
+    'CERTIFICATE', 'KEY', 'INTERMEDIATES', 'ENABLE_SIGSTORE', 'FULCIO',
+    'FULCIO_OIDC_CLIENT_ID', 'FULCIO_OIDC_ISSUER', 'FULCIO_TOKEN',
+    'TIMESTAMP_SERVERS', 'TRACE', 'SPIFFE_SOCKET', 'PRODUCT_EXCLUDE_GLOB',
+    'PRODUCT_INCLUDE_GLOB', 'ATTESTOR_LINK_EXPORT', 'ATTESTOR_SBOM_EXPORT',
+    'ATTESTOR_SLSA_EXPORT', 'ATTESTOR_MAVEN_POM_PATH', 'EXTRA_ARGS'
+  ];
+
+  // Log what we're doing
+  core.info("Forwarding inputs to nested action:");
+
+  // For each INPUT_* environment variable
   Object.keys(process.env)
-    .filter(key => key.startsWith('INPUT_') && !key.startsWith('INPUT_INPUT_'))
+    .filter(key => key.startsWith('INPUT_'))
     .forEach(key => {
-      // Skip action-wrapper specific inputs
-      const skipInputs = [
-        'ACTION_REF', 'COMMAND', 'WITNESS_VERSION', 'WITNESS_INSTALL_DIR', 
-        'STEP', 'ATTESTATIONS', 'OUTFILE', 'ENABLE_ARCHIVISTA', 'ARCHIVISTA_SERVER',
-        'CERTIFICATE', 'KEY', 'INTERMEDIATES', 'ENABLE_SIGSTORE', 'FULCIO',
-        'FULCIO_OIDC_CLIENT_ID', 'FULCIO_OIDC_ISSUER', 'FULCIO_TOKEN',
-        'TIMESTAMP_SERVERS', 'TRACE', 'SPIFFE_SOCKET', 'PRODUCT_EXCLUDE_GLOB',
-        'PRODUCT_INCLUDE_GLOB', 'ATTESTOR_LINK_EXPORT', 'ATTESTOR_SBOM_EXPORT',
-        'ATTESTOR_SLSA_EXPORT', 'ATTESTOR_MAVEN_POM_PATH', 'EXTRA_ARGS'
-      ];
+      // Get just the input name part (after INPUT_ prefix)
+      const inputName = key.substring(6); 
       
-      if (!skipInputs.includes(key.substring(6))) {
-        const inputName = key.substring(6); // Keep the case for setting
-        core.info(`Passing through input '${inputName}' to nested action`);
+      // If this is not a wrapper-specific input, preserve it for the nested action
+      if (!wrapperSpecificInputs.includes(inputName)) {
+        // Passthrough any input that isn't specific to the wrapper
+        core.info(`➡️ Forwarding ${key}="${process.env[key]}" to nested action`);
+        
+        // Re-set it in the environment to ensure it's passed to the subprocess
         envVars[key] = process.env[key];
+      } else {
+        core.debug(`Skipping wrapper-specific input: ${key}`);
       }
     });
-    
-  // Explicitly handle WHO_TO_GREET which is required for the hello-world action
-  const inputWhoToGreet = process.env['INPUT_INPUT_WHO_TO_GREET'];
-  if (inputWhoToGreet) {
-    core.info(`🔍 Explicitly setting WHO_TO_GREET from INPUT_INPUT_WHO_TO_GREET: ${inputWhoToGreet}`);
-    envVars['INPUT_WHO_TO_GREET'] = inputWhoToGreet;
-  } else {
-    core.warning(`🔍 No INPUT_INPUT_WHO_TO_GREET found - checking for variants...`);
-    // Let's check for case variants
-    Object.keys(process.env)
-      .filter(key => key.toLowerCase().includes('who') && key.toLowerCase().includes('greet'))
-      .forEach(key => {
-        core.warning(`  Found key ${key}=${process.env[key]}`);
-      });
-  }
   
   // For debugging, log all environment vars being passed to the nested action
   core.info(`Passing these inputs to nested action Witness command:`);
@@ -907,44 +876,38 @@ async function runDirectCommandWithWitness(command, witnessOptions) {
     }
   };
   
-  // Process inputs with 'input-' prefix for direct commands
-  const inputPrefix = 'input-';
-  const nestedInputs = {};
-  
-  // Get all inputs that start with 'input-'
+  // Define a list of inputs that are specific to the wrapper action
+  const wrapperSpecificInputs = [
+    'ACTION_REF', 'COMMAND', 'WITNESS_VERSION', 'WITNESS_INSTALL_DIR', 
+    'STEP', 'ATTESTATIONS', 'OUTFILE', 'ENABLE_ARCHIVISTA', 'ARCHIVISTA_SERVER',
+    'CERTIFICATE', 'KEY', 'INTERMEDIATES', 'ENABLE_SIGSTORE', 'FULCIO',
+    'FULCIO_OIDC_CLIENT_ID', 'FULCIO_OIDC_ISSUER', 'FULCIO_TOKEN',
+    'TIMESTAMP_SERVERS', 'TRACE', 'SPIFFE_SOCKET', 'PRODUCT_EXCLUDE_GLOB',
+    'PRODUCT_INCLUDE_GLOB', 'ATTESTOR_LINK_EXPORT', 'ATTESTOR_SBOM_EXPORT',
+    'ATTESTOR_SLSA_EXPORT', 'ATTESTOR_MAVEN_POM_PATH', 'EXTRA_ARGS'
+  ];
+
+  // Log what we're doing
+  core.info("For direct command: Forwarding inputs to command environment:");
+
+  // For each INPUT_* environment variable
   Object.keys(process.env)
     .filter(key => key.startsWith('INPUT_'))
     .forEach(key => {
-      const inputName = key.substring(6).toLowerCase(); // Remove 'INPUT_' prefix
-      // Convert underscores in input name to hyphens for matching with input-prefix
-      const normalizedInputName = inputName.replace(/_/g, '-');
+      // Get just the input name part (after INPUT_ prefix)
+      const inputName = key.substring(6); 
       
-      if (normalizedInputName.startsWith(inputPrefix)) {
-        const nestedInputName = normalizedInputName.substring(inputPrefix.length);
-        nestedInputs[nestedInputName] = process.env[key];
-        // Convert hyphens to underscores for environment variables
-        const envName = nestedInputName.replace(/-/g, '_').toUpperCase();
+      // If this is not a wrapper-specific input, preserve it for the command
+      if (!wrapperSpecificInputs.includes(inputName)) {
+        // Passthrough any input that isn't specific to the wrapper
+        core.info(`➡️ For direct command: Forwarding ${key}="${process.env[key]}"`);
         
-        core.info(`For direct command: Passing input '${nestedInputName}' from ${inputName}`);
-        // Set the environment variable for the nested command
-        execOptions.env[`INPUT_${envName}`] = process.env[key];
+        // Re-set it in the environment to ensure it's passed to the subprocess
+        execOptions.env[key] = process.env[key];
+      } else {
+        core.debug(`For direct command: Skipping wrapper-specific input: ${key}`);
       }
     });
-    
-  // Explicitly handle WHO_TO_GREET which is required for the hello-world action
-  const inputWhoToGreet = process.env['INPUT_INPUT_WHO_TO_GREET'];
-  if (inputWhoToGreet) {
-    core.info(`🔍 For direct command: Explicitly setting WHO_TO_GREET from INPUT_INPUT_WHO_TO_GREET: ${inputWhoToGreet}`);
-    execOptions.env['INPUT_WHO_TO_GREET'] = inputWhoToGreet;
-  } else {
-    core.warning(`🔍 For direct command: No INPUT_INPUT_WHO_TO_GREET found - checking for variants...`);
-    // Let's check for case variants
-    Object.keys(process.env)
-      .filter(key => key.toLowerCase().includes('who') && key.toLowerCase().includes('greet'))
-      .forEach(key => {
-        core.warning(`  Found key ${key}=${process.env[key]}`);
-      });
-  }
     
   // For debugging, log all inputs that will be passed to the command
   core.info(`Direct command will have these inputs available:`);

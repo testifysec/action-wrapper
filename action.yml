@@ -109,11 +109,8 @@ inputs:
     required: false
   
   # Input Passing to Nested Actions
-  input-*:
-    description: "Any input with the prefix 'input-' will be passed to the nested action without the prefix (e.g., input-who-to-greet becomes who-to-greet)"
-    required: false
-  extra-args:
-    description: "Extra arguments to pass to the nested action (deprecated, use input-* instead)"
+  '*':
+    description: "Any inputs that aren't defined above will be passed through to the nested action as-is"
     required: false
 
 outputs:

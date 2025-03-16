@@ -33,10 +33,10 @@ jobs:
           # Action to run
           action-ref: "actions/hello-world-javascript-action@main"
           
-          # Test different input formats
-          input-who-to-greet: "Input Forwarding Test"
-          input-multi-word-param: "Multiple Words Parameter"
-          input-boolean-flag: "true"
+          # Test different input formats - passed to nested action
+          who-to-greet: "Input Forwarding Test"
+          multi-word-param: "Multiple Words Parameter"
+          boolean-flag: "true"
           
           # Witness configuration
           step: "input-forwarding"
@@ -73,7 +73,6 @@ jobs:
         with:
           # Action to run
           action-ref: "actions/hello-world-javascript-action@main"
-          input-who-to-greet: "Sigstore"
           who-to-greet: "Sigstore"
           
           # Witness configuration

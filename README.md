@@ -23,7 +23,7 @@ jobs:
         with:
           # Action to run
           action-ref: "actions/hello-world-javascript-action@main"
-          input-who-to-greet: "World"  # Passed to the nested action
+          who-to-greet: "World"  # Passed to the nested action
           
           # Witness configuration
           step: "hello-world"
@@ -69,11 +69,12 @@ This action combines the functionality of a GitHub Action wrapper with Witness a
 
 ### Input Forwarding
 
-The action wrapper passes inputs to the nested action with a special prefix convention:
+The action wrapper transparently passes inputs to the nested action:
 
-- Any input parameter starting with `input-` will have the prefix removed and be passed to the nested action
-- For example, `input-who-to-greet: "World"` becomes `who-to-greet: "World"` for the nested action
-- This allows you to clearly separate inputs meant for the wrapper action from those meant for the nested action
+- Any input parameters not used by the wrapper action itself will be passed to the nested action as-is
+- For example, if using the hello-world action, use `who-to-greet: "World"` directly
+- GitHub shows a harmless warning about "unexpected inputs", but this can be safely ignored
+- The wrapper distinguishes between its own inputs and those meant for the nested action
 
 ## Key Features
 
@@ -163,12 +164,11 @@ The action wrapper passes inputs to the nested action with a special prefix conv
 | `attestor-slsa-export` | Export SLSA attestor | No | `false` |
 | `attestor-maven-pom-path` | Path to Maven POM file | No | |
 
-### Action Inputs
+### Nested Action Inputs
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `input-*` | Any input with the prefix `input-` will be passed to the nested action without the prefix (e.g., input-who-to-greet becomes who-to-greet) | No | |
-| `extra-args` | Extra arguments to pass to the nested action (deprecated, use `input-*` instead) | No | |
+| `*` | Any inputs not used by the wrapper action will be passed through to the nested action as-is | No | |
 
 ## Outputs
 
@@ -199,7 +199,7 @@ The action wrapper passes inputs to the nested action with a special prefix conv
   uses: testifysec/action-wrapper@v4
   with:
     action-ref: "actions/hello-world-javascript-action@main"
-    input-who-to-greet: "World"
+    who-to-greet: "World"
     step: "hello-world-archivista"
     attestations: "command attestor.git"
     enable-archivista: "true"
@@ -216,7 +216,7 @@ The action wrapper passes inputs to the nested action with a special prefix conv
   uses: testifysec/action-wrapper@v4
   with:
     action-ref: "actions/hello-world-javascript-action@main"
-    input-who-to-greet: "World"
+    who-to-greet: "World"
     step: "hello-world-attestors"
     attestations: "command attestor.git attestor.slsa attestor.sbom"
     attestor-slsa-export: "true"
