@@ -6,12 +6,12 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:  # Allow manual triggering
-    
-permissions:
-  id-token: write # This is required for requesting the JWT
-  contents: read  # This is required for actions/checkout
 
-jobs:          
+permissions:
+  id-token: write  # Required for requesting the JWT
+  contents: read   # Required for actions/checkout
+
+jobs:
   test-input-forwarding:
     runs-on: ubuntu-latest
     steps:
@@ -25,24 +25,21 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-        
+
       - name: Test Input Forwarding
         id: input-forwarding
         uses: ./
         with:
-          # Action to run
+          # Wrapped action reference
           action-ref: "actions/hello-world-javascript-action@main"
-          
-          # Test different input formats - passed to nested action
-          who-to-greet: "Input Forwarding Test"
-          multi-word-param: "Multiple Words Parameter"
-          boolean-flag: "true"
-          
-          # Witness configuration
+          # Pass required input along with any extra parameters via extraArgs.
+          # NOTE: The wrapper code parses extraArgs and sets them as environment variables.
+          extraArgs: "WHO_TO_GREET='Input Forwarding Test' MULTI_WORD_PARAM='Multiple Words Parameter' BOOLEAN_FLAG=true"
+          # Witness configuration inputs
           step: "input-forwarding"
           attestations: "command environment"
           outfile: "./input-forwarding.json"
-          
+
       - name: Check attestation file
         run: |
           if [[ -f "./input-forwarding.json" ]]; then
@@ -52,7 +49,7 @@ jobs:
             echo "Input forwarding attestation file not found!"
             exit 1
           fi
-          
+
   test-sigstore-archivista:
     runs-on: ubuntu-latest
     steps:
@@ -71,11 +68,10 @@ jobs:
         id: sigstore-attestation
         uses: ./
         with:
-          # Action to run
           action-ref: "actions/hello-world-javascript-action@main"
-          who-to-greet: "Sigstore"
-          
-          # Witness configuration
+          # Pass required input using extraArgs
+          extraArgs: "WHO_TO_GREET='Sigstore'"
+          # Witness configuration inputs
           step: test-sigstore
           attestations: "environment github slsa"
           attestor-slsa-export: "true"
@@ -107,4 +103,3 @@ jobs:
         with:
           name: sigstore-attestation
           path: ./sigstore-attestation.json
-          
