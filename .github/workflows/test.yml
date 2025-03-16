@@ -21,11 +21,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Test wrapper with a simple action (no strace)
+      - name: Test wrapper with a simple action (no wrapper)
         uses: ./
         with:
           action-ref: "actions/hello-world-javascript-action@main"
-          enable-strace: "false"
+          enable-wrapper: "false"
           input-who-to-greet: "World"
 
   test-strace:
@@ -54,17 +54,16 @@ jobs:
         uses: ./
         with:
           action-ref: "actions/hello-world-javascript-action@main"
-          enable-strace: "true"
-          strace-options: "-f -v -s 256 -e trace=file,process,network,signal,ipc,desc,memory"
+          wrapper-command: "strace -f -v -s 256 -e trace=file,process,network,signal,ipc,desc,memory"
           input-who-to-greet: "Strace"
       
       - name: Check strace output
         run: |
-          if [ -f "${{ steps.strace-test.outputs.strace-log }}" ]; then
-            echo "Strace log file exists at ${{ steps.strace-test.outputs.strace-log }}"
-            head -n 20 "${{ steps.strace-test.outputs.strace-log }}"
+          if [ -f "${{ steps.strace-test.outputs.wrapper-log }}" ]; then
+            echo "Wrapper log file exists at ${{ steps.strace-test.outputs.wrapper-log }}"
+            head -n 20 "${{ steps.strace-test.outputs.wrapper-log }}"
           else
-            echo "Strace log file not found!"
+            echo "Wrapper log file not found!"
             exit 1
           fi
       
@@ -72,4 +71,42 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: strace-logs
-          path: ${{ steps.strace-test.outputs.strace-log }}
+          path: ${{ steps.strace-test.outputs.wrapper-log }}
+          
+  test-time:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test wrapper with time command
+        id: time-test
+        uses: ./
+        with:
+          action-ref: "actions/hello-world-javascript-action@main"
+          wrapper-command: "time -v"
+          input-who-to-greet: "Time"
+      
+      - name: Check time output
+        run: |
+          if [ -f "${{ steps.time-test.outputs.wrapper-log }}" ]; then
+            echo "Time log file exists at ${{ steps.time-test.outputs.wrapper-log }}"
+            cat "${{ steps.time-test.outputs.wrapper-log }}"
+          else
+            echo "Time log file not found!"
+            exit 1
+          fi
+      
+      - name: Upload time logs as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: time-logs
+          path: ${{ steps.time-test.outputs.wrapper-log }}

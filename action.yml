@@ -1,5 +1,5 @@
 name: "TestifySec Action Wrapper"
-description: "Downloads and executes another GitHub Action with optional strace instrumentation"
+description: "Downloads and executes another GitHub Action with optional command wrapping (strace, time, etc.)"
 inputs:
   action-ref:
     description: "Reference to the nested action (e.g., owner/repo@ref)"
@@ -7,18 +7,28 @@ inputs:
   extra-args:
     description: "Extra arguments to pass to the nested action (deprecated, use input-* instead)"
     required: false
-  strace-options:
-    description: "Options to pass to strace (default: '-f -v -s 256 -e trace=file,process,network,signal,ipc,desc,memory')"
+  wrapper-command:
+    description: "Command to wrap around the nested action execution (e.g., 'strace -f', 'time -v', etc.)"
     required: false
-  enable-strace:
-    description: "Enable strace instrumentation (default: true)"
+  enable-wrapper:
+    description: "Enable command wrapping (default: true)"
     required: false
     default: "true"
+  # For backward compatibility
+  strace-options:
+    description: "Options to pass to strace (deprecated, use wrapper-command instead)"
+    required: false
+  enable-strace:
+    description: "Enable strace instrumentation (deprecated, use enable-wrapper instead)"
+    required: false
   # Any input with the prefix 'input-' will be passed to the nested action
   # For example, input-who-to-greet will be passed as who-to-greet to the nested action
 outputs:
+  wrapper-log:
+    description: "Path to the output log file for the wrapper command (if enabled and applicable)"
+  # For backward compatibility
   strace-log:
-    description: "Path to the strace output log file (if strace was enabled and successful)"
+    description: "Path to the strace log file (deprecated, use wrapper-log instead)"
 runs:
   using: "node16"
   main: "index.js"

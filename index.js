@@ -48,10 +48,32 @@ async function run() {
     // Get inputs
     const actionRef = core.getInput("action-ref");
     const extraArgs = core.getInput("extra-args") || "";
-    // Improved default strace options for better insights
-    const defaultStraceOptions = "-f -v -s 256 -e trace=file,process,network,signal,ipc,desc,memory";
-    const straceOptions = core.getInput("strace-options") || defaultStraceOptions;
-    const enableStrace = core.getInput("enable-strace").toLowerCase() === "true";
+    
+    // Default wrapper settings
+    const defaultWrapperCommand = "strace -f -v -s 256 -e trace=file,process,network,signal,ipc,desc,memory";
+    
+    // Handle backward compatibility with strace-specific options
+    let enableWrapper = core.getInput("enable-wrapper").toLowerCase();
+    enableWrapper = enableWrapper === "" ? null : enableWrapper === "true";
+    
+    let enableStrace = core.getInput("enable-strace").toLowerCase();
+    enableStrace = enableStrace === "" ? null : enableStrace === "true";
+    
+    // If enable-wrapper is not specified but enable-strace is, use enableStrace value
+    const isWrapperEnabled = enableWrapper !== null ? enableWrapper : 
+                           enableStrace !== null ? enableStrace : true;
+    
+    // If wrapper-command is not specified but strace-options is, construct strace command
+    const straceOptions = core.getInput("strace-options") || "";
+    let wrapperCommand = core.getInput("wrapper-command") || "";
+    
+    if (!wrapperCommand && straceOptions) {
+      wrapperCommand = `strace ${straceOptions}`;
+    } else if (!wrapperCommand) {
+      wrapperCommand = defaultWrapperCommand;
+    }
+    
+    core.info(`Command wrapper ${isWrapperEnabled ? 'enabled' : 'disabled'}: ${wrapperCommand}`);
 
     // Parse action-ref (expects format: owner/repo@ref)
     const [repo, ref] = parseActionRef(actionRef);
@@ -132,13 +154,13 @@ async function run() {
         // If there's only one directory, use that one
         const alternateFolder = path.join(tempDir, tempContents[0]);
         core.info(`Using alternative extracted folder: ${alternateFolder}`);
-        return await processAction(alternateFolder, extraArgs);
+        return await processAction(alternateFolder, extraArgs, repo, isWrapperEnabled, wrapperCommand);
       } else {
         throw new Error(`Extracted folder ${extractedFolder} not found and could not determine alternative.`);
       }
     }
 
-    await processAction(extractedFolder, extraArgs);
+    await processAction(extractedFolder, extraArgs, repo, isWrapperEnabled, wrapperCommand);
     
   } catch (error) {
     core.setFailed(`Wrapper action failed: ${error.message}`);
@@ -148,11 +170,7 @@ async function run() {
   }
 }
 
-async function processAction(actionDir, extraArgs) {
-  // Get strace options from input
-  const straceOptions = core.getInput("strace-options") || "-f -e trace=network,write,open";
-  const enableStrace = core.getInput("enable-strace").toLowerCase() === "true";
-  
+async function processAction(actionDir, extraArgs, repo, isWrapperEnabled, wrapperCommand) {
   // Read action.yml from the downloaded action
   const actionYmlPath = path.join(actionDir, "action.yml");
   // Some actions use action.yaml instead of action.yml
@@ -213,146 +231,176 @@ async function processAction(actionDir, extraArgs) {
   // For backwards compatibility, also support the extra-args parameter
   const args = extraArgs.split(/\s+/).filter((a) => a); // split and remove empty strings
   
-  // Use strace if enabled and available
-  if (enableStrace) {
-    core.info(`Strace enabled with options: ${straceOptions}`);
-    core.info(`Executing nested action with strace: strace ${straceOptions} node ${entryFile} ${args.join(" ")}`);
+  // Common execution options
+  const execOptions = {
+    cwd: actionDir,
+    env: envVars,
+    listeners: {
+      stdout: (data) => {
+        const output = data.toString();
+        process.stdout.write(output);
+      },
+      stderr: (data) => {
+        const output = data.toString();
+        process.stderr.write(output);
+      },
+      debug: (message) => {
+        core.debug(message);
+      }
+    },
+    ignoreReturnCode: false
+  };
+  
+  if (isWrapperEnabled && wrapperCommand) {
+    // Extract the command name and its arguments
+    const [wrapperCmd, ...wrapperArgs] = parseCommand(wrapperCommand);
+    
+    core.info(`Wrapper enabled: ${wrapperCmd} ${wrapperArgs.join(' ')}`);
     
     try {
-      // First, check if strace is installed
-      await exec.exec("which", ["strace"]);
+      // Check if the wrapper command is available
+      await exec.exec("which", [wrapperCmd]);
       
-      // Parse strace options into an array
-      const straceOptionsList = straceOptions.split(/\s+/).filter(Boolean);
+      // Determine whether we need to create an output log file
+      let wrapperLogFile = null;
       
-      // Create output file for strace results with timestamp and action name
-      const repoName = repo.split("/")[1];
-      const timestamp = new Date().toISOString().replace(/:/g, '-');
-      const stracelLogFile = path.join(
-        process.env.GITHUB_WORKSPACE || '.', 
-        `strace-${repoName}-${timestamp}.log`
-      );
+      // Check if the command is strace (backward compatibility) or if command
+      // should output to a file (if it doesn't have -o or --output already)
+      const isStrace = wrapperCmd === 'strace';
+      const hasOutputOption = wrapperArgs.includes('-o') || wrapperArgs.includes('--output');
       
-      // Add output file option if not already specified
-      if (!straceOptionsList.includes('-o') && !straceOptionsList.includes('--output')) {
-        straceOptionsList.push('-o', stracelLogFile);
-        core.info(`Strace output will be saved to: ${stracelLogFile}`);
+      // For strace or if no output option specified, create a log file
+      if ((isStrace || shouldCreateLogFile(wrapperCmd)) && !hasOutputOption) {
+        // Get repo name for the log file name
+        const repoName = repo.split("/")[1];
+        const timestamp = new Date().toISOString().replace(/:/g, '-');
+        wrapperLogFile = path.join(
+          process.env.GITHUB_WORKSPACE || '.', 
+          `${wrapperCmd}-${repoName}-${timestamp}.log`
+        );
+        
+        // Add output redirection option based on command type
+        if (isStrace) {
+          wrapperArgs.push('-o', wrapperLogFile);
+        } else if (wrapperCmd === 'time') {
+          // time uses -o for output
+          wrapperArgs.push('-o', wrapperLogFile);
+        } else {
+          // For other commands, we'll handle output redirection separately
+          // We'll capture the output and write it to a file
+        }
+        
+        core.info(`Command output will be saved to: ${wrapperLogFile}`);
       }
       
-      // Use strace to wrap the node process with explicit exit handling
-      const options = {
-        cwd: actionDir,
-        env: envVars,
-        listeners: {
-          stdout: (data) => {
-            const output = data.toString();
-            // Just pass through stdout from the child process
-            process.stdout.write(output);
-          },
-          stderr: (data) => {
-            const output = data.toString();
-            // Just pass through stderr from the child process
-            process.stderr.write(output);
-          },
-          debug: (message) => {
-            core.debug(message);
-          }
-        },
-        // This will provide access to the child process object
-        ignoreReturnCode: false
-      };
+      // Define the node command and arguments
+      const nodeCmd = "node";
+      const nodeArgs = [entryFile, ...args];
       
-      // Use the exec implementation that gives us access to the child process
-      const cp = await exec.getExecOutput("strace", [...straceOptionsList, "node", entryFile, ...args], options);
-      core.debug(`Strace process completed with exit code: ${cp.exitCode}`);
+      // Execute the wrapped command
+      let cp;
+      if (wrapperLogFile && !hasOutputOption && !isStrace && wrapperCmd !== 'time') {
+        // For commands that don't have built-in output file support, 
+        // use shell redirection to log output
+        const redirectCmd = `${wrapperCmd} ${wrapperArgs.join(' ')} ${nodeCmd} ${nodeArgs.join(' ')} > ${wrapperLogFile} 2>&1`;
+        cp = await exec.getExecOutput('bash', ['-c', redirectCmd], execOptions);
+      } else {
+        // For commands with built-in output support or no logging needed
+        cp = await exec.getExecOutput(wrapperCmd, [...wrapperArgs, nodeCmd, ...nodeArgs], execOptions);
+      }
       
-      // Add helpful headers to the strace log file
-      if (fs.existsSync(stracelLogFile)) {
-        // Create a temporary file for the header
-        const headerFile = `${stracelLogFile}.header`;
-        const header = `
-#=============================================================================
-# Strace log for GitHub Action: ${actionRef}
-# Date: ${new Date().toISOString()}
-# Command: node ${entryFile} ${args.join(" ")}
-# Options: ${straceOptions}
-#=============================================================================
-
-`;
-        fs.writeFileSync(headerFile, header);
-        
-        // Concatenate the header and the original strace output
-        const originalContent = fs.readFileSync(stracelLogFile);
-        fs.writeFileSync(stracelLogFile, Buffer.concat([
-          Buffer.from(header),
-          originalContent
-        ]));
-        
-        try {
-          // Delete the temporary header file
-          fs.unlinkSync(headerFile);
-        } catch (error) {
-          // Ignore any errors while deleting the temporary file
+      core.debug(`Wrapper process completed with exit code: ${cp.exitCode}`);
+      
+      // Add helpful headers to the log file if it exists
+      if (wrapperLogFile && fs.existsSync(wrapperLogFile)) {
+        addHeaderToLogFile(
+          wrapperLogFile, 
+          wrapperCmd, 
+          wrapperArgs.join(' '), 
+          nodeCmd, 
+          nodeArgs.join(' '), 
+          repo
+        );
+      }
+      
+      // Set outputs
+      if (wrapperLogFile) {
+        core.setOutput("wrapper-log", wrapperLogFile);
+        // For backward compatibility if it's strace
+        if (isStrace) {
+          core.setOutput("strace-log", wrapperLogFile);
         }
       }
       
-      // Export the strace log path as an output
-      core.setOutput("strace-log", stracelLogFile);
-      
     } catch (error) {
-      // If strace is not available, fall back to running without it
-      core.warning(`Strace is not available: ${error.message}`);
-      core.info(`Executing nested action without strace: node ${entryFile} ${args.join(" ")}`);
+      // If the wrapper command is not available, fall back to running without it
+      core.warning(`Wrapper command '${wrapperCmd}' is not available: ${error.message}`);
+      core.info(`Executing nested action without wrapper: node ${entryFile} ${args.join(" ")}`);
       
-      const options = {
-        cwd: actionDir,
-        env: envVars,
-        listeners: {
-          stdout: (data) => {
-            const output = data.toString();
-            process.stdout.write(output);
-          },
-          stderr: (data) => {
-            const output = data.toString();
-            process.stderr.write(output);
-          },
-          debug: (message) => {
-            core.debug(message);
-          }
-        },
-        ignoreReturnCode: false
-      };
-      
-      // Use getExecOutput to get access to the child process
-      const cp = await exec.getExecOutput("node", [entryFile, ...args], options);
+      // Direct execution without wrapper
+      const cp = await exec.getExecOutput("node", [entryFile, ...args], execOptions);
       core.debug(`Node process completed with exit code: ${cp.exitCode}`);
     }
   } else {
-    // Run without strace
-    core.info(`Strace disabled. Executing nested action: node ${entryFile} ${args.join(" ")}`);
+    // Run without any wrapper
+    core.info(`Wrapper disabled. Executing nested action directly: node ${entryFile} ${args.join(" ")}`);
     
-    const options = {
-      cwd: actionDir,
-      env: envVars,
-      listeners: {
-        stdout: (data) => {
-          const output = data.toString();
-          process.stdout.write(output);
-        },
-        stderr: (data) => {
-          const output = data.toString();
-          process.stderr.write(output);
-        },
-        debug: (message) => {
-          core.debug(message);
-        }
-      },
-      ignoreReturnCode: false
-    };
-    
-    // Use getExecOutput to get access to the child process
-    const cp = await exec.getExecOutput("node", [entryFile, ...args], options);
+    // Direct execution without wrapper
+    const cp = await exec.getExecOutput("node", [entryFile, ...args], execOptions);
     core.debug(`Node process completed with exit code: ${cp.exitCode}`);
+  }
+}
+
+// Helper function to parse a command string into command and arguments
+function parseCommand(commandString) {
+  // Simple space-based split for now
+  // This could be enhanced with proper shell-like parsing if needed
+  return commandString.trim().split(/\s+/).filter(Boolean);
+}
+
+// Helper function to determine if we should create a log file for this command
+function shouldCreateLogFile(command) {
+  // List of commands that typically produce output we'd want to capture
+  const loggableCommands = [
+    'strace', 'time', 'ltrace', 'perf', 'valgrind', 
+    'memcheck', 'gdb', 'prof', 'top', 'vmstat', 'iostat'
+  ];
+  
+  return loggableCommands.includes(command);
+}
+
+// Helper function to add a header to a log file
+function addHeaderToLogFile(logFile, wrapperCmd, wrapperArgs, cmd, cmdArgs, repo) {
+  try {
+    // Create a temporary file for the header
+    const headerFile = `${logFile}.header`;
+    const header = `
+#=============================================================================
+# ${wrapperCmd.toUpperCase()} log for GitHub Action: ${repo}
+# Date: ${new Date().toISOString()}
+# Wrapper: ${wrapperCmd} ${wrapperArgs}
+# Command: ${cmd} ${cmdArgs}
+#=============================================================================
+
+`;
+    fs.writeFileSync(headerFile, header);
+    
+    // Concatenate the header and the original output
+    const originalContent = fs.readFileSync(logFile);
+    fs.writeFileSync(logFile, Buffer.concat([
+      Buffer.from(header),
+      originalContent
+    ]));
+    
+    try {
+      // Delete the temporary header file
+      fs.unlinkSync(headerFile);
+    } catch (error) {
+      // Ignore any errors while deleting the temporary file
+    }
+  } catch (error) {
+    // If there's any error with the header, just log it and continue
+    core.warning(`Could not add header to log file: ${error.message}`);
   }
 }
 
