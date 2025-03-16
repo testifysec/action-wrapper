@@ -26,6 +26,7 @@ jobs:
         with:
           action-ref: "actions/hello-world-javascript-action@main"
           enable-strace: "false"
+          input-who-to-greet: "World"
 
   test-strace:
     runs-on: ubuntu-latest
@@ -41,8 +42,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
       
-      - name: Install strace
-        run: sudo apt-get update && sudo apt-get install -y strace
+      - name: Install strace and set permissions
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y strace
+          # Set permissions to allow strace to work without privilege issues
+          echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope || true
 
       - name: Test wrapper with strace
         id: strace-test
@@ -51,6 +56,7 @@ jobs:
           action-ref: "actions/hello-world-javascript-action@main"
           enable-strace: "true"
           strace-options: "-f -e trace=open,close,network,write"
+          input-who-to-greet: "Strace"
       
       - name: Check strace output
         run: |

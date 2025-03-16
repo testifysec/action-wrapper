@@ -149,7 +149,30 @@ async function processAction(actionDir, extraArgs) {
     await exec.exec("npm", ["install"], { cwd: actionDir });
   }
 
-  // Execute the nested action using Node.js
+  // Get all inputs with 'input-' prefix and pass them to the nested action
+  // We'll set these as environment variables that GitHub Actions uses
+  const inputPrefix = 'input-';
+  const nestedInputs = {};
+  
+  // Get all inputs that start with 'input-'
+  Object.keys(process.env)
+    .filter(key => key.startsWith('INPUT_'))
+    .forEach(key => {
+      const inputName = key.substring(6).toLowerCase(); // Remove 'INPUT_' prefix
+      if (inputName.startsWith(inputPrefix)) {
+        const nestedInputName = inputName.substring(inputPrefix.length);
+        nestedInputs[nestedInputName] = process.env[key];
+        core.info(`Passing input '${nestedInputName}' to nested action`);
+      }
+    });
+  
+  // Set environment variables for the nested action
+  const envVars = { ...process.env };
+  Object.keys(nestedInputs).forEach(name => {
+    envVars[`INPUT_${name.toUpperCase()}`] = nestedInputs[name];
+  });
+  
+  // For backwards compatibility, also support the extra-args parameter
   const args = extraArgs.split(/\s+/).filter((a) => a); // split and remove empty strings
   
   // Use strace if enabled and available
@@ -174,7 +197,10 @@ async function processAction(actionDir, extraArgs) {
       }
       
       // Use strace to wrap the node process
-      await exec.exec("strace", [...straceOptionsList, "node", entryFile, ...args], { cwd: actionDir });
+      await exec.exec("strace", [...straceOptionsList, "node", entryFile, ...args], { 
+        cwd: actionDir,
+        env: envVars
+      });
       
       // Export the strace log path as an output
       core.setOutput("strace-log", stracelLogFile);
@@ -183,12 +209,18 @@ async function processAction(actionDir, extraArgs) {
       // If strace is not available, fall back to running without it
       core.warning(`Strace is not available: ${error.message}`);
       core.info(`Executing nested action without strace: node ${entryFile} ${args.join(" ")}`);
-      await exec.exec("node", [entryFile, ...args], { cwd: actionDir });
+      await exec.exec("node", [entryFile, ...args], { 
+        cwd: actionDir,
+        env: envVars
+      });
     }
   } else {
     // Run without strace
     core.info(`Strace disabled. Executing nested action: node ${entryFile} ${args.join(" ")}`);
-    await exec.exec("node", [entryFile, ...args], { cwd: actionDir });
+    await exec.exec("node", [entryFile, ...args], { 
+      cwd: actionDir,
+      env: envVars
+    });
   }
 }
 

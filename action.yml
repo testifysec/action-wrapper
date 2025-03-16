@@ -5,7 +5,7 @@ inputs:
     description: "Reference to the nested action (e.g., owner/repo@ref)"
     required: true
   extra-args:
-    description: "Extra arguments to pass to the nested action"
+    description: "Extra arguments to pass to the nested action (deprecated, use input-* instead)"
     required: false
   strace-options:
     description: "Options to pass to strace (default: '-f -e trace=network,write,open')"
@@ -14,6 +14,8 @@ inputs:
     description: "Enable strace instrumentation (default: true)"
     required: false
     default: "true"
+  # Any input with the prefix 'input-' will be passed to the nested action
+  # For example, input-who-to-greet will be passed as who-to-greet to the nested action
 outputs:
   strace-log:
     description: "Path to the strace output log file (if strace was enabled and successful)"
