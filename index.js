@@ -34,8 +34,27 @@ actionTimeoutId.unref();
 async function run() {
   try {
     // Step 1: Get Witness-related inputs
-    const witnessVersion = core.getInput("witness-version") || "0.2.11";
+    const witnessVersion = core.getInput("witness-version") || "0.8.1";
     const witnessInstallDir = core.getInput("witness-install-dir") || "./";
+    
+    // Log all inputs for debugging purposes
+    core.info(`Action inputs received:`);
+    Object.keys(process.env)
+      .filter(key => key.startsWith('INPUT_'))
+      .forEach(key => {
+        // Mask sensitive inputs
+        const isSensitive = key.includes('TOKEN') || key.includes('KEY');
+        const value = isSensitive ? '***' : process.env[key];
+        core.info(`  ${key}=${value}`);
+      });
+      
+    // Specifically check if input-who-to-greet exists, which is needed for the hello-world action
+    const whoToGreet = core.getInput('input-who-to-greet');
+    if (whoToGreet) {
+      core.info(`Found input-who-to-greet=${whoToGreet}`);
+    } else {
+      core.warning(`No input-who-to-greet found in inputs - this may cause issues with the hello-world action`);
+    }
     
     // Step 2: First download Witness binary
     await downloadWitness(witnessVersion, witnessInstallDir);
@@ -465,12 +484,26 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   
   let actionConfig;
   
+  let actionYmlContent;
   if (fs.existsSync(actionYmlPath)) {
-    actionConfig = yaml.load(fs.readFileSync(actionYmlPath, "utf8"));
+    actionYmlContent = fs.readFileSync(actionYmlPath, "utf8");
+    actionConfig = yaml.load(actionYmlContent);
   } else if (fs.existsSync(actionYamlPath)) {
-    actionConfig = yaml.load(fs.readFileSync(actionYamlPath, "utf8"));
+    actionYmlContent = fs.readFileSync(actionYamlPath, "utf8");
+    actionConfig = yaml.load(actionYmlContent);
   } else {
     throw new Error(`Neither action.yml nor action.yaml found in ${actionDir}`);
+  }
+  
+  // Debug: Log the action's inputs section
+  if (actionConfig.inputs) {
+    core.info(`Nested action inputs: ${JSON.stringify(Object.keys(actionConfig.inputs))}`);
+    // Check specifically for the who-to-greet input
+    if (actionConfig.inputs['who-to-greet']) {
+      core.info(`Found 'who-to-greet' input in action definition. Required: ${actionConfig.inputs['who-to-greet'].required}`);
+    } else {
+      core.warning(`Nested action doesn't define 'who-to-greet' input in its action.yml!`);
+    }
   }
   
   const entryPoint = actionConfig.runs && actionConfig.runs.main;
@@ -489,6 +522,21 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   const pkgJsonPath = path.join(actionDir, "package.json");
   if (fs.existsSync(pkgJsonPath)) {
     core.info("Installing dependencies for nested action...");
+    
+    // Log package.json contents for debugging
+    try {
+      const pkgJson = require(pkgJsonPath);
+      core.info(`Nested action package.json name: ${pkgJson.name}, version: ${pkgJson.version}`);
+      if (pkgJson.dependencies) {
+        core.info(`Dependencies: ${JSON.stringify(pkgJson.dependencies)}`);
+      }
+      if (pkgJson.inputs) {
+        core.info(`Action inputs: ${JSON.stringify(pkgJson.inputs)}`);
+      }
+    } catch (error) {
+      core.warning(`Could not read package.json: ${error.message}`);
+    }
+    
     await exec.exec("npm", ["install"], { cwd: actionDir });
   }
 
@@ -502,18 +550,67 @@ async function runActionWithWitness(actionDir, witnessOptions) {
     .filter(key => key.startsWith('INPUT_'))
     .forEach(key => {
       const inputName = key.substring(6).toLowerCase(); // Remove 'INPUT_' prefix
-      if (inputName.startsWith(inputPrefix)) {
-        const nestedInputName = inputName.substring(inputPrefix.length);
+      // Convert underscores in input name to hyphens for matching with input-prefix
+      const normalizedInputName = inputName.replace(/_/g, '-');
+      
+      if (normalizedInputName.startsWith(inputPrefix)) {
+        const nestedInputName = normalizedInputName.substring(inputPrefix.length);
         nestedInputs[nestedInputName] = process.env[key];
         core.info(`Passing input '${nestedInputName}' to nested action`);
       }
     });
+    
+  // Debug all input values (use core.debug to reduce noise in normal execution)
+  core.debug("All available inputs:");
+  Object.keys(process.env)
+    .filter(key => key.startsWith('INPUT_'))
+    .forEach(key => {
+      // Mask sensitive inputs
+      const isSensitive = key.includes('TOKEN') || key.includes('KEY');
+      const value = isSensitive ? '***' : process.env[key];
+      core.debug(`${key}: ${value}`);
+    });
   
   // Set environment variables for the nested action
   const envVars = { ...process.env };
+  
+  // First add all inputs with the input- prefix
   Object.keys(nestedInputs).forEach(name => {
-    envVars[`INPUT_${name.toUpperCase()}`] = nestedInputs[name];
+    // Convert hyphens to underscores for environment variables
+    const envName = name.replace(/-/g, '_').toUpperCase();
+    envVars[`INPUT_${envName}`] = nestedInputs[name];
+    core.info(`Set INPUT_${envName}=${nestedInputs[name]}`);
   });
+  
+  // Also check if there are any inputs without the 'input-' prefix that might need to be passed
+  Object.keys(process.env)
+    .filter(key => key.startsWith('INPUT_') && !key.startsWith('INPUT_INPUT_'))
+    .forEach(key => {
+      // Skip action-wrapper specific inputs
+      const skipInputs = [
+        'ACTION_REF', 'COMMAND', 'WITNESS_VERSION', 'WITNESS_INSTALL_DIR', 
+        'STEP', 'ATTESTATIONS', 'OUTFILE', 'ENABLE_ARCHIVISTA', 'ARCHIVISTA_SERVER',
+        'CERTIFICATE', 'KEY', 'INTERMEDIATES', 'ENABLE_SIGSTORE', 'FULCIO',
+        'FULCIO_OIDC_CLIENT_ID', 'FULCIO_OIDC_ISSUER', 'FULCIO_TOKEN',
+        'TIMESTAMP_SERVERS', 'TRACE', 'SPIFFE_SOCKET', 'PRODUCT_EXCLUDE_GLOB',
+        'PRODUCT_INCLUDE_GLOB', 'ATTESTOR_LINK_EXPORT', 'ATTESTOR_SBOM_EXPORT',
+        'ATTESTOR_SLSA_EXPORT', 'ATTESTOR_MAVEN_POM_PATH', 'EXTRA_ARGS'
+      ];
+      
+      if (!skipInputs.includes(key.substring(6))) {
+        const inputName = key.substring(6); // Keep the case for setting
+        core.info(`Passing through input '${inputName}' to nested action`);
+        envVars[key] = process.env[key];
+      }
+    });
+  
+  // For debugging, log all environment vars being passed to the nested action
+  core.info(`Passing these inputs to nested action Witness command:`);
+  Object.keys(envVars)
+    .filter(key => key.startsWith('INPUT_'))
+    .forEach(key => {
+      core.info(`  ${key}=${envVars[key]}`);
+    });
   
   // Build the witness run command
   const cmd = ["run"];
@@ -757,7 +854,7 @@ async function runDirectCommandWithWitness(command, witnessOptions) {
   // Set up options for execution
   const execOptions = {
     cwd: process.env.GITHUB_WORKSPACE || process.cwd(),
-    env: process.env,
+    env: { ...process.env },  // Create a copy to avoid modifying the original
     listeners: {
       stdout: (data) => {
         process.stdout.write(data.toString());
@@ -767,6 +864,38 @@ async function runDirectCommandWithWitness(command, witnessOptions) {
       }
     }
   };
+  
+  // Process inputs with 'input-' prefix for direct commands
+  const inputPrefix = 'input-';
+  const nestedInputs = {};
+  
+  // Get all inputs that start with 'input-'
+  Object.keys(process.env)
+    .filter(key => key.startsWith('INPUT_'))
+    .forEach(key => {
+      const inputName = key.substring(6).toLowerCase(); // Remove 'INPUT_' prefix
+      // Convert underscores in input name to hyphens for matching with input-prefix
+      const normalizedInputName = inputName.replace(/_/g, '-');
+      
+      if (normalizedInputName.startsWith(inputPrefix)) {
+        const nestedInputName = normalizedInputName.substring(inputPrefix.length);
+        nestedInputs[nestedInputName] = process.env[key];
+        // Convert hyphens to underscores for environment variables
+        const envName = nestedInputName.replace(/-/g, '_').toUpperCase();
+        
+        core.info(`For direct command: Passing input '${nestedInputName}' from ${inputName}`);
+        // Set the environment variable for the nested command
+        execOptions.env[`INPUT_${envName}`] = process.env[key];
+      }
+    });
+    
+  // For debugging, log all inputs that will be passed to the command
+  core.info(`Direct command will have these inputs available:`);
+  Object.keys(execOptions.env)
+    .filter(key => key.startsWith('INPUT_'))
+    .forEach(key => {
+      core.info(`  ${key}=${execOptions.env[key]}`);
+    });
   
   // Execute and capture output
   let output = '';
