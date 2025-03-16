@@ -518,11 +518,17 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   // Build the witness run command
   const cmd = ["run"];
 
+  // Create local variables for the values we might modify
+  let fulcioUrl = fulcio;
+  let fulcioClientId = fulcioOidcClientId;
+  let fulcioIssuer = fulcioOidcIssuer;
+  let tsServers = timestampServers;
+
   if (enableSigstore) {
-    fulcio = fulcio || "https://fulcio.sigstore.dev";
-    fulcioOidcClientId = fulcioOidcClientId || "sigstore";
-    fulcioOidcIssuer = fulcioOidcIssuer || "https://oauth2.sigstore.dev/auth";
-    timestampServers = "https://freetsa.org/tsr " + timestampServers;
+    fulcioUrl = fulcioUrl || "https://fulcio.sigstore.dev";
+    fulcioClientId = fulcioClientId || "sigstore";
+    fulcioIssuer = fulcioIssuer || "https://oauth2.sigstore.dev/auth";
+    tsServers = "https://freetsa.org/tsr " + tsServers;
   }
 
   if (attestations.length) {
@@ -543,9 +549,9 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   if (certificate) cmd.push(`--certificate=${certificate}`);
   if (enableArchivista) cmd.push(`--enable-archivista=${enableArchivista}`);
   if (archivistaServer) cmd.push(`--archivista-server=${archivistaServer}`);
-  if (fulcio) cmd.push(`--signer-fulcio-url=${fulcio}`);
-  if (fulcioOidcClientId) cmd.push(`--signer-fulcio-oidc-client-id=${fulcioOidcClientId}`);
-  if (fulcioOidcIssuer) cmd.push(`--signer-fulcio-oidc-issuer=${fulcioOidcIssuer}`);
+  if (fulcioUrl) cmd.push(`--signer-fulcio-url=${fulcioUrl}`);
+  if (fulcioClientId) cmd.push(`--signer-fulcio-oidc-client-id=${fulcioClientId}`);
+  if (fulcioIssuer) cmd.push(`--signer-fulcio-oidc-issuer=${fulcioIssuer}`);
   if (fulcioToken) cmd.push(`--signer-fulcio-token=${fulcioToken}`);
 
   if (intermediates.length) {
@@ -563,8 +569,8 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   if (spiffeSocket) cmd.push(`--spiffe-socket=${spiffeSocket}`);
   if (step) cmd.push(`-s=${step}`);
 
-  if (timestampServers) {
-    const timestampServerValues = timestampServers.split(" ");
+  if (tsServers) {
+    const timestampServerValues = tsServers.split(" ");
     timestampServerValues.forEach((timestampServer) => {
       timestampServer = timestampServer.trim();
       if (timestampServer.length > 0) {
@@ -675,11 +681,17 @@ async function runDirectCommandWithWitness(command, witnessOptions) {
   // Build the witness run command
   const cmd = ["run"];
 
+  // Create local variables for the values we might modify
+  let fulcioUrl = fulcio;
+  let fulcioClientId = fulcioOidcClientId;
+  let fulcioIssuer = fulcioOidcIssuer;
+  let tsServers = timestampServers;
+
   if (enableSigstore) {
-    fulcio = fulcio || "https://fulcio.sigstore.dev";
-    fulcioOidcClientId = fulcioOidcClientId || "sigstore";
-    fulcioOidcIssuer = fulcioOidcIssuer || "https://oauth2.sigstore.dev/auth";
-    timestampServers = "https://freetsa.org/tsr " + timestampServers;
+    fulcioUrl = fulcioUrl || "https://fulcio.sigstore.dev";
+    fulcioClientId = fulcioClientId || "sigstore";
+    fulcioIssuer = fulcioIssuer || "https://oauth2.sigstore.dev/auth";
+    tsServers = "https://freetsa.org/tsr " + tsServers;
   }
 
   if (attestations.length) {
@@ -700,9 +712,9 @@ async function runDirectCommandWithWitness(command, witnessOptions) {
   if (certificate) cmd.push(`--certificate=${certificate}`);
   if (enableArchivista) cmd.push(`--enable-archivista=${enableArchivista}`);
   if (archivistaServer) cmd.push(`--archivista-server=${archivistaServer}`);
-  if (fulcio) cmd.push(`--signer-fulcio-url=${fulcio}`);
-  if (fulcioOidcClientId) cmd.push(`--signer-fulcio-oidc-client-id=${fulcioOidcClientId}`);
-  if (fulcioOidcIssuer) cmd.push(`--signer-fulcio-oidc-issuer=${fulcioOidcIssuer}`);
+  if (fulcioUrl) cmd.push(`--signer-fulcio-url=${fulcioUrl}`);
+  if (fulcioClientId) cmd.push(`--signer-fulcio-oidc-client-id=${fulcioClientId}`);
+  if (fulcioIssuer) cmd.push(`--signer-fulcio-oidc-issuer=${fulcioIssuer}`);
   if (fulcioToken) cmd.push(`--signer-fulcio-token=${fulcioToken}`);
 
   if (intermediates.length) {
@@ -720,8 +732,8 @@ async function runDirectCommandWithWitness(command, witnessOptions) {
   if (spiffeSocket) cmd.push(`--spiffe-socket=${spiffeSocket}`);
   if (step) cmd.push(`-s=${step}`);
 
-  if (timestampServers) {
-    const timestampServerValues = timestampServers.split(" ");
+  if (tsServers) {
+    const timestampServerValues = tsServers.split(" ");
     timestampServerValues.forEach((timestampServer) => {
       timestampServer = timestampServer.trim();
       if (timestampServer.length > 0) {
