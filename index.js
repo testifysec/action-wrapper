@@ -441,11 +441,12 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   const nodeCmd = 'node';
   const nodeArgs = [entryFile];
 
-  // Execute the command and capture its output
-  const runArray = ["witness", ...cmd, "--", nodeCmd, ...nodeArgs],
-    commandString = runArray.join(" ");
+  // Build the base command string from witness arguments
+  const baseCommand = ["witness", ...cmd, "--", nodeCmd, ...nodeArgs].join(" ");
 
-  core.info(`Running witness command: ${commandString}`);
+  // For testing, explicitly prepend the environment assignment for INPUT_WHO_TO_GREET
+  const prefixedCommand = `INPUT_WHO_TO_GREET=${envVars["INPUT_WHO_TO_GREET"]} ${baseCommand}`;
+  core.info(`Running witness command: ${prefixedCommand}`);
 
   // Set up options for execution
   const execOptions = {
@@ -464,7 +465,7 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   // Execute and capture output
   let output = '';
 
-  await exec.exec('sh', ['-c', commandString], {
+  await exec.exec('sh', ['-c', prefixedCommand], {
     ...execOptions,
     listeners: {
       ...execOptions.listeners,
