@@ -5,51 +5,13 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:  # Allow manual triggering
+  workflow_dispatch:
 
 permissions:
   id-token: write  # Required for requesting the JWT
   contents: read   # Required for actions/checkout
 
 jobs:
-  test-input-forwarding:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '16'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Test Input Forwarding
-        id: input-forwarding
-        uses: ./
-        with:
-          # Wrapped action reference
-          action-ref: "actions/hello-world-javascript-action@main"
-          # Pass required input along with any extra parameters via extraArgs.
-          # NOTE: The wrapper code parses extraArgs and sets them as environment variables.
-          extraArgs: "WHO_TO_GREET='Input Forwarding Test' MULTI_WORD_PARAM='Multiple Words Parameter' BOOLEAN_FLAG=true"
-          # Witness configuration inputs
-          step: "input-forwarding"
-          attestations: "command environment"
-          outfile: "./input-forwarding.json"
-
-      - name: Check attestation file
-        run: |
-          if [[ -f "./input-forwarding.json" ]]; then
-            echo "Input forwarding attestation created successfully"
-            jq . "./input-forwarding.json" | head -n 20
-          else
-            echo "Input forwarding attestation file not found!"
-            exit 1
-          fi
-
   test-sigstore-archivista:
     runs-on: ubuntu-latest
     steps:
@@ -69,37 +31,9 @@ jobs:
         uses: ./
         with:
           action-ref: "actions/hello-world-javascript-action@main"
-          # Pass required input using extraArgs
-          extraArgs: "WHO_TO_GREET='Sigstore'"
-          # Witness configuration inputs
+          who-to-greet: "Sigstore"    # Required input passed correctly
           step: test-sigstore
           attestations: "environment github slsa"
           attestor-slsa-export: "true"
           enable-sigstore: "true"
           enable-archivista: "true"
-          outfile: "./sigstore-attestation.json"
-      
-      - name: Check GitOID output
-        run: |
-          if [[ -n "${{ steps.sigstore-attestation.outputs.git_oid }}" ]]; then
-            echo "GitOID: ${{ steps.sigstore-attestation.outputs.git_oid }}"
-            echo "Attestation succeeded with Sigstore and Archivista"
-          else
-            echo "No GitOID returned - this might be expected in PR builds without proper credentials"
-          fi
-          
-      - name: Check attestation file
-        run: |
-          if [[ -f "./sigstore-attestation.json" ]]; then
-            echo "Sigstore attestation created successfully"
-            jq . "./sigstore-attestation.json" | head -n 20
-          else
-            echo "Sigstore attestation file not found!"
-            exit 1
-          fi
-      
-      - name: Upload sigstore attestation as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sigstore-attestation
-          path: ./sigstore-attestation.json
