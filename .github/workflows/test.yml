@@ -26,15 +26,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
       
-      - name: Test with Sigstore and Archivista
-        id: sigstore-attestation
+      - name: Test wrapper with time command
+        id: time-test
         uses: ./
         with:
           action-ref: "actions/hello-world-javascript-action@main"
-          who-to-greet: "Sigstore"    # Required input passed correctly
-          step: test-sigstore
-          attestations: "environment github slsa"
-          attestor-slsa-export: "true"
-          enable-sigstore: "true"
-          enable-archivista: "true"
-          input-who-to-greet: "input-Sigstore"    # Required input passed incorrectly
+          wrapper-command: "time -v"
+          input-who-to-greet: "Time"
+      
+      - name: Check time output
+        run: |
+          if [ -f "${{ steps.time-test.outputs.wrapper-log }}" ]; then
+            echo "Time log file exists at ${{ steps.time-test.outputs.wrapper-log }}"
+            cat "${{ steps.time-test.outputs.wrapper-log }}"
+          else
+            echo "Time log file not found!"
+            exit 1
+          fi
+      
+      - name: Upload time logs as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: time-logs
+          path: ${{ steps.time-test.outputs.wrapper-log }}
