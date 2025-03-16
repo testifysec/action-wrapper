@@ -1,9 +1,9 @@
 name: "TestifySec Action Wrapper with Witness"
-description: "Downloads and executes another GitHub Action with Witness attestation"
+description: "Downloads and executes another GitHub Action or direct command with Witness attestation for supply chain security"
 inputs:
-  # Action or Command
+  # Action or Command (one is required)
   action-ref:
-    description: "Reference to the nested action (e.g., owner/repo@ref)"
+    description: "Reference to the nested action (e.g., owner/repo@ref or owner/repo@v1)"
     required: false
   command:
     description: "Command to run with Witness (use this or action-ref)"
@@ -108,9 +108,9 @@ inputs:
     description: "Path to Maven POM file"
     required: false
   
-  # For backward compatibility - will pass these to the nested action
+  # Input Passing to Nested Actions
   input-*:
-    description: "Any input with the prefix 'input-' will be passed to the nested action"
+    description: "Any input with the prefix 'input-' will be passed to the nested action without the prefix (e.g., input-who-to-greet becomes who-to-greet)"
     required: false
   extra-args:
     description: "Extra arguments to pass to the nested action (deprecated, use input-* instead)"
@@ -122,3 +122,7 @@ outputs:
 runs:
   using: "node16"
   main: "index.js"
+
+branding:
+  icon: 'lock'
+  color: 'blue'

@@ -1,6 +1,6 @@
 # TestifySec Action Wrapper with Witness
 
-A GitHub Action that downloads and executes another GitHub Action with Witness attestation.
+A GitHub Action that downloads and executes another GitHub Action or direct command with Witness attestation for supply chain security.
 
 ## Usage
 
@@ -67,6 +67,14 @@ This action combines the functionality of a GitHub Action wrapper with Witness a
 3. **Runs with Attestation**: The action is executed through Witness, which creates attestations
 4. **Stores Results**: Attestations are stored (optionally in Archivista) and GitOIDs are returned
 
+### Input Forwarding
+
+The action wrapper passes inputs to the nested action with a special prefix convention:
+
+- Any input parameter starting with `input-` will have the prefix removed and be passed to the nested action
+- For example, `input-who-to-greet: "World"` becomes `who-to-greet: "World"` for the nested action
+- This allows you to clearly separate inputs meant for the wrapper action from those meant for the nested action
+
 ## Key Features
 
 - **GitHub Action Execution**: Run any JavaScript GitHub Action
@@ -90,7 +98,7 @@ This action combines the functionality of a GitHub Action wrapper with Witness a
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `witness-version` | Version of Witness to use | No | `0.2.11` |
+| `witness-version` | Version of Witness to use | No | `0.8.1` |
 | `witness-install-dir` | Directory to install Witness | No | `./` |
 
 ### Witness Core Options
@@ -159,7 +167,7 @@ This action combines the functionality of a GitHub Action wrapper with Witness a
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `input-*` | Any input with the prefix `input-` will be passed to the nested action | No | |
+| `input-*` | Any input with the prefix `input-` will be passed to the nested action without the prefix (e.g., input-who-to-greet becomes who-to-greet) | No | |
 | `extra-args` | Extra arguments to pass to the nested action (deprecated, use `input-*` instead) | No | |
 
 ## Outputs
