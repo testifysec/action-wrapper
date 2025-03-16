@@ -8,7 +8,7 @@ inputs:
     description: "Extra arguments to pass to the nested action (deprecated, use input-* instead)"
     required: false
   strace-options:
-    description: "Options to pass to strace (default: '-f -e trace=network,write,open')"
+    description: "Options to pass to strace (default: '-f -v -s 256 -e trace=file,process,network,signal,ipc,desc,memory')"
     required: false
   enable-strace:
     description: "Enable strace instrumentation (default: true)"

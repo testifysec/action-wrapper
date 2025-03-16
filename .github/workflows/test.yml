@@ -55,7 +55,7 @@ jobs:
         with:
           action-ref: "actions/hello-world-javascript-action@main"
           enable-strace: "true"
-          strace-options: "-f -e trace=open,close,network,write"
+          strace-options: "-f -v -s 256 -e trace=file,process,network,signal,ipc,desc,memory"
           input-who-to-greet: "Strace"
       
       - name: Check strace output

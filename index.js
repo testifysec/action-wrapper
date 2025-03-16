@@ -48,7 +48,9 @@ async function run() {
     // Get inputs
     const actionRef = core.getInput("action-ref");
     const extraArgs = core.getInput("extra-args") || "";
-    const straceOptions = core.getInput("strace-options") || "-f -e trace=network,write,open";
+    // Improved default strace options for better insights
+    const defaultStraceOptions = "-f -v -s 256 -e trace=file,process,network,signal,ipc,desc,memory";
+    const straceOptions = core.getInput("strace-options") || defaultStraceOptions;
     const enableStrace = core.getInput("enable-strace").toLowerCase() === "true";
 
     // Parse action-ref (expects format: owner/repo@ref)
@@ -223,8 +225,13 @@ async function processAction(actionDir, extraArgs) {
       // Parse strace options into an array
       const straceOptionsList = straceOptions.split(/\s+/).filter(Boolean);
       
-      // Create output file for strace results
-      const stracelLogFile = path.join(process.env.GITHUB_WORKSPACE || '.', 'strace-output.log');
+      // Create output file for strace results with timestamp and action name
+      const repoName = repo.split("/")[1];
+      const timestamp = new Date().toISOString().replace(/:/g, '-');
+      const stracelLogFile = path.join(
+        process.env.GITHUB_WORKSPACE || '.', 
+        `strace-${repoName}-${timestamp}.log`
+      );
       
       // Add output file option if not already specified
       if (!straceOptionsList.includes('-o') && !straceOptionsList.includes('--output')) {
@@ -258,6 +265,36 @@ async function processAction(actionDir, extraArgs) {
       // Use the exec implementation that gives us access to the child process
       const cp = await exec.getExecOutput("strace", [...straceOptionsList, "node", entryFile, ...args], options);
       core.debug(`Strace process completed with exit code: ${cp.exitCode}`);
+      
+      // Add helpful headers to the strace log file
+      if (fs.existsSync(stracelLogFile)) {
+        // Create a temporary file for the header
+        const headerFile = `${stracelLogFile}.header`;
+        const header = `
+#=============================================================================
+# Strace log for GitHub Action: ${actionRef}
+# Date: ${new Date().toISOString()}
+# Command: node ${entryFile} ${args.join(" ")}
+# Options: ${straceOptions}
+#=============================================================================
+
+`;
+        fs.writeFileSync(headerFile, header);
+        
+        // Concatenate the header and the original strace output
+        const originalContent = fs.readFileSync(stracelLogFile);
+        fs.writeFileSync(stracelLogFile, Buffer.concat([
+          Buffer.from(header),
+          originalContent
+        ]));
+        
+        try {
+          // Delete the temporary header file
+          fs.unlinkSync(headerFile);
+        } catch (error) {
+          // Ignore any errors while deleting the temporary file
+        }
+      }
       
       // Export the strace log path as an output
       core.setOutput("strace-log", stracelLogFile);

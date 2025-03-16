@@ -28,7 +28,7 @@ jobs:
 |-------|-------------|----------|---------|
 | `action-ref` | Reference to the nested action (e.g., owner/repo@ref) | Yes | |
 | `enable-strace` | Enable strace instrumentation | No | `true` |
-| `strace-options` | Options to pass to strace | No | `-f -e trace=network,write,open` |
+| `strace-options` | Options to pass to strace | No | `-f -v -s 256 -e trace=file,process,network,signal,ipc,desc,memory` |
 | `input-*` | Any input with the prefix `input-` will be passed to the nested action | No | |
 | `extra-args` | Extra arguments to pass to the nested action (deprecated, use `input-*` instead) | No | |
 
@@ -43,7 +43,7 @@ To pass inputs to the nested action, prefix them with `input-`. For example:
 
 | Output | Description |
 |--------|-------------|
-| `strace-log` | Path to the strace output log file (if strace was enabled and successful) |
+| `strace-log` | Path to the strace output log file. The filename includes timestamp and action name for easy identification. |
 
 ## Features
 
@@ -111,11 +111,12 @@ To pass inputs to the nested action, prefix them with `input-`. For example:
 ```yaml
 - name: Run with Strace
   id: strace-action
-  uses: testifysec/action-wrapper@v2
+  uses: testifysec/action-wrapper@v2.1.2
   with:
     action-ref: "actions/hello-world-javascript-action@main"
     enable-strace: "true"
-    strace-options: "-f -e trace=network,write,open,close -o /tmp/trace.log"
+    # Comprehensive tracing with improved verbosity
+    strace-options: "-f -v -s 256 -e trace=file,process,network,signal,ipc,desc,memory"
     input-who-to-greet: "World"  # Passed to the nested action as who-to-greet
 
 - name: Upload Strace Results
@@ -124,6 +125,12 @@ To pass inputs to the nested action, prefix them with `input-`. For example:
     name: strace-logs
     path: ${{ steps.strace-action.outputs.strace-log }}
 ```
+
+The strace log will include a helpful header with:
+- Action reference
+- Timestamp
+- Command executed
+- Strace options used
 
 ### Disabling Strace
 
