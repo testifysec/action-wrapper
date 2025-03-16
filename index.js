@@ -7,7 +7,43 @@ const axios = require("axios");
 const unzipper = require("unzipper");
 const yaml = require("js-yaml");
 
+// Handle signals to ensure clean exit
+process.on('SIGINT', () => {
+  console.log('Action wrapper received SIGINT, exiting...');
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('Action wrapper received SIGTERM, exiting...');
+  process.exit(0);
+});
+
+// Set an absolute maximum timeout for the entire action (30 minutes)
+const MAX_ACTION_DURATION_MS = 30 * 60 * 1000;
+const actionTimeoutId = setTimeout(() => {
+  core.warning(`Action timed out after ${MAX_ACTION_DURATION_MS/60000} minutes. This is likely a bug in the action wrapper. Forcing exit.`);
+  process.exit(1);
+}, MAX_ACTION_DURATION_MS);
+
+// Make sure the timeout doesn't prevent the process from exiting naturally
+actionTimeoutId.unref();
+
 async function run() {
+  // Track any child processes created
+  const childProcesses = [];
+  
+  // Register for process exits to ensure we clean up
+  process.on('beforeExit', () => {
+    core.debug(`Cleaning up any remaining child processes: ${childProcesses.length}`);
+    childProcesses.forEach(pid => {
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch (e) {
+        // Ignore errors when killing processes that might be gone
+      }
+    });
+  });
+  
   try {
     // Get inputs
     const actionRef = core.getInput("action-ref");
@@ -196,11 +232,32 @@ async function processAction(actionDir, extraArgs) {
         core.info(`Strace output will be saved to: ${stracelLogFile}`);
       }
       
-      // Use strace to wrap the node process
-      await exec.exec("strace", [...straceOptionsList, "node", entryFile, ...args], { 
+      // Use strace to wrap the node process with explicit exit handling
+      const options = {
         cwd: actionDir,
-        env: envVars
-      });
+        env: envVars,
+        listeners: {
+          stdout: (data) => {
+            const output = data.toString();
+            // Just pass through stdout from the child process
+            process.stdout.write(output);
+          },
+          stderr: (data) => {
+            const output = data.toString();
+            // Just pass through stderr from the child process
+            process.stderr.write(output);
+          },
+          debug: (message) => {
+            core.debug(message);
+          }
+        },
+        // This will provide access to the child process object
+        ignoreReturnCode: false
+      };
+      
+      // Use the exec implementation that gives us access to the child process
+      const cp = await exec.getExecOutput("strace", [...straceOptionsList, "node", entryFile, ...args], options);
+      core.debug(`Strace process completed with exit code: ${cp.exitCode}`);
       
       // Export the strace log path as an output
       core.setOutput("strace-log", stracelLogFile);
@@ -209,18 +266,56 @@ async function processAction(actionDir, extraArgs) {
       // If strace is not available, fall back to running without it
       core.warning(`Strace is not available: ${error.message}`);
       core.info(`Executing nested action without strace: node ${entryFile} ${args.join(" ")}`);
-      await exec.exec("node", [entryFile, ...args], { 
+      
+      const options = {
         cwd: actionDir,
-        env: envVars
-      });
+        env: envVars,
+        listeners: {
+          stdout: (data) => {
+            const output = data.toString();
+            process.stdout.write(output);
+          },
+          stderr: (data) => {
+            const output = data.toString();
+            process.stderr.write(output);
+          },
+          debug: (message) => {
+            core.debug(message);
+          }
+        },
+        ignoreReturnCode: false
+      };
+      
+      // Use getExecOutput to get access to the child process
+      const cp = await exec.getExecOutput("node", [entryFile, ...args], options);
+      core.debug(`Node process completed with exit code: ${cp.exitCode}`);
     }
   } else {
     // Run without strace
     core.info(`Strace disabled. Executing nested action: node ${entryFile} ${args.join(" ")}`);
-    await exec.exec("node", [entryFile, ...args], { 
+    
+    const options = {
       cwd: actionDir,
-      env: envVars
-    });
+      env: envVars,
+      listeners: {
+        stdout: (data) => {
+          const output = data.toString();
+          process.stdout.write(output);
+        },
+        stderr: (data) => {
+          const output = data.toString();
+          process.stderr.write(output);
+        },
+        debug: (message) => {
+          core.debug(message);
+        }
+      },
+      ignoreReturnCode: false
+    };
+    
+    // Use getExecOutput to get access to the child process
+    const cp = await exec.getExecOutput("node", [entryFile, ...args], options);
+    core.debug(`Node process completed with exit code: ${cp.exitCode}`);
   }
 }
 
@@ -232,4 +327,20 @@ function parseActionRef(refString) {
   return parts;
 }
 
-run();
+run()
+  .then(() => {
+    core.debug('Action wrapper completed successfully');
+    // Force exit to ensure we don't hang
+    setTimeout(() => {
+      core.debug('Forcing process exit to prevent hanging');
+      process.exit(0);
+    }, 500);
+  })
+  .catch(error => {
+    core.setFailed(`Action wrapper failed: ${error.message}`);
+    // Force exit to ensure we don't hang
+    setTimeout(() => {
+      core.debug('Forcing process exit to prevent hanging');
+      process.exit(1);
+    }, 500);
+  });
