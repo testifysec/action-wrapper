@@ -1,6 +1,5 @@
 const core = require("@actions/core");
 const exec = require("@actions/exec");
-const { exit } = require("process");
 const process = require("process");
 const fs = require("fs");
 const os = require("os");
@@ -10,41 +9,22 @@ const unzipper = require("unzipper");
 const yaml = require("js-yaml");
 const tc = require("@actions/tool-cache");
 
-// Handle signals to ensure clean exit
-process.on('SIGINT', () => {
-  console.log('Action wrapper received SIGINT, exiting...');
-  process.exit(0);
-});
+process.on('SIGINT', () => process.exit(0));
+process.on('SIGTERM', () => process.exit(0));
 
-process.on('SIGTERM', () => {
-  console.log('Action wrapper received SIGTERM, exiting...');
-  process.exit(0);
-});
-
-// Set an absolute maximum timeout for the entire action (30 minutes)
 const MAX_ACTION_DURATION_MS = 30 * 60 * 1000;
-const actionTimeoutId = setTimeout(() => {
-  core.warning(`Action timed out after ${MAX_ACTION_DURATION_MS / 60000} minutes. This is likely a bug in the action wrapper. Forcing exit.`);
-  process.exit(1);
-}, MAX_ACTION_DURATION_MS);
-
-// Make sure the timeout doesn't prevent the process from exiting naturally
+const actionTimeoutId = setTimeout(() => process.exit(1), MAX_ACTION_DURATION_MS);
 actionTimeoutId.unref();
 
 async function run() {
   try {
-    // Step 1: Get Witness-related inputs
     const witnessVersion = core.getInput("witness-version") || "0.2.11";
     const witnessInstallDir = core.getInput("witness-install-dir") || "./";
-
-    // Step 2: First download Witness binary
     await downloadWitness(witnessVersion, witnessInstallDir);
 
-    // Step 3: Now handle the GitHub Action wrapping
     const actionRef = core.getInput("action-ref");
     const downloadedActionDir = await downloadAndExtractAction(actionRef);
 
-    // Step 4: Prepare witness command
     const step = core.getInput("step");
     const archivistaServer = core.getInput("archivista-server");
     const attestations = core.getInput("attestations").split(" ");
@@ -56,22 +36,18 @@ async function run() {
     const fulcioToken = core.getInput("fulcio-token");
     const intermediates = core.getInput("intermediates").split(" ");
     const key = core.getInput("key");
-    let outfile = core.getInput("outfile");
-    outfile = outfile ? outfile : path.join(os.tmpdir(), step + "-attestation.json");
+    let outfile = core.getInput("outfile") || path.join(os.tmpdir(), step + "-attestation.json");
     const productExcludeGlob = core.getInput("product-exclude-glob");
     const productIncludeGlob = core.getInput("product-include-glob");
     const spiffeSocket = core.getInput("spiffe-socket");
-
     let timestampServers = core.getInput("timestamp-servers");
     const trace = core.getInput("trace");
     const enableSigstore = core.getInput("enable-sigstore") === "true";
-
     const exportLink = core.getInput("attestor-link-export") === "true";
     const exportSBOM = core.getInput("attestor-sbom-export") === "true";
     const exportSLSA = core.getInput("attestor-slsa-export") === "true";
     const mavenPOM = core.getInput("attestor-maven-pom-path");
 
-    // Step 5: Run the downloaded action with Witness
     const witnessOutput = await runActionWithWitness(
       downloadedActionDir,
       {
@@ -100,72 +76,45 @@ async function run() {
       }
     );
 
-    // Step 6: Process the output
     const gitOIDs = extractDesiredGitOIDs(witnessOutput);
-
     for (const gitOID of gitOIDs) {
-      console.log("Extracted GitOID:", gitOID);
       core.setOutput("git_oid", gitOID);
-      const artifactURL = `${archivistaServer}/download/${gitOID}`;
-      const summaryHeader = `
+      if (process.env.GITHUB_STEP_SUMMARY) {
+        const summaryHeader = `
 ## Attestations Created
 | Step | Attestors Run | Attestation GitOID
 | --- | --- | --- |
 `;
-      try {
-        if (process.env.GITHUB_STEP_SUMMARY) {
-          const summaryFile = fs.readFileSync(process.env.GITHUB_STEP_SUMMARY, { encoding: "utf-8" });
-          const headerExists = summaryFile.includes(summaryHeader.trim());
-          if (!headerExists) {
-            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summaryHeader);
-          }
-          const tableRow = `| ${step} | ${attestations.join(", ")} | [${gitOID}](${artifactURL}) |\n`;
-          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, tableRow);
+        let summaryFile = fs.readFileSync(process.env.GITHUB_STEP_SUMMARY, "utf-8");
+        if (!summaryFile.includes(summaryHeader.trim())) {
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summaryHeader);
         }
-      } catch (error) {
-        core.warning(`Could not write to GitHub step summary: ${error.message}`);
+        const artifactURL = `${archivistaServer}/download/${gitOID}`;
+        const tableRow = `| ${step} | ${attestations.join(", ")} | [${gitOID}](${artifactURL}) |\n`;
+        fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, tableRow);
       }
     }
   } catch (error) {
     core.setFailed(`Wrapper action failed: ${error.message}`);
-    if (error.response) {
-      core.error(`HTTP status: ${error.response.status}`);
-    }
   }
 }
 
 async function downloadWitness(version, installDir) {
   let witnessPath = tc.find("witness", version);
-  console.log("Cached Witness Path: " + witnessPath);
   if (!witnessPath) {
-    console.log("Witness not found in cache, downloading now");
     let witnessTar;
     if (process.platform === "win32") {
-      witnessTar = await tc.downloadTool(
-        "https://github.com/in-toto/witness/releases/download/v" + version + "/witness_" + version + "_windows_amd64.tar.gz"
-      );
+      witnessTar = await tc.downloadTool(`https://github.com/in-toto/witness/releases/download/v${version}/witness_${version}_windows_amd64.tar.gz`);
     } else if (process.platform === "darwin") {
-      witnessTar = await tc.downloadTool(
-        "https://github.com/in-toto/witness/releases/download/v" + version + "/witness_" + version + "_darwin_amd64.tar.gz"
-      );
+      witnessTar = await tc.downloadTool(`https://github.com/in-toto/witness/releases/download/v${version}/witness_${version}_darwin_amd64.tar.gz`);
     } else {
-      witnessTar = await tc.downloadTool(
-        "https://github.com/in-toto/witness/releases/download/v" + version + "/witness_" + version + "_linux_amd64.tar.gz"
-      );
+      witnessTar = await tc.downloadTool(`https://github.com/in-toto/witness/releases/download/v${version}/witness_${version}_linux_amd64.tar.gz`);
     }
     if (!fs.existsSync(installDir)) {
-      console.log("Creating witness install directory at " + installDir);
       fs.mkdirSync(installDir, { recursive: true });
     }
-    console.log("Extracting witness at: " + installDir);
     witnessPath = await tc.extractTar(witnessTar, installDir);
-    const cachedPath = await tc.cacheFile(
-      path.join(witnessPath, "witness"),
-      "witness",
-      "witness",
-      version
-    );
-    console.log("Witness cached at: " + cachedPath);
+    const cachedPath = await tc.cacheFile(path.join(witnessPath, "witness"), "witness", "witness", version);
     witnessPath = cachedPath;
   }
   core.addPath(witnessPath);
@@ -174,64 +123,46 @@ async function downloadWitness(version, installDir) {
 
 async function downloadAndExtractAction(actionRef) {
   const [repo, ref] = parseActionRef(actionRef);
-  core.info(`Parsed repo: ${repo}, ref: ${ref}`);
   const isTag = !ref.includes('/');
   const zipUrl = isTag
     ? `https://github.com/${repo}/archive/refs/tags/${ref}.zip`
     : `https://github.com/${repo}/archive/refs/heads/${ref}.zip`;
-  core.info(`Downloading action from: ${zipUrl}`);
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nested-action-"));
   try {
     const response = await axios({
       url: zipUrl,
       method: "GET",
       responseType: "stream",
-      validateStatus: function (status) { return status >= 200 && status < 300; },
+      validateStatus: status => status >= 200 && status < 300,
       maxRedirects: 5
     });
     await new Promise((resolve, reject) => {
-      response.data.pipe(unzipper.Extract({ path: tempDir }))
-        .on("close", resolve)
-        .on("error", reject);
+      response.data.pipe(unzipper.Extract({ path: tempDir })).on("close", resolve).on("error", reject);
     });
-    core.info(`Downloaded and extracted to ${tempDir}`);
   } catch (error) {
-    if (error.response) {
-      core.error(`Download failed with status ${error.response.status}`);
-      if (isTag) {
-        core.info("Attempting alternative download URL for branches...");
-        const altZipUrl = `https://github.com/${repo}/archive/refs/heads/${ref}.zip`;
-        core.info(`Trying alternative URL: ${altZipUrl}`);
-        const altResponse = await axios({
-          url: altZipUrl,
-          method: "GET",
-          responseType: "stream",
-          maxRedirects: 5
-        });
-        await new Promise((resolve, reject) => {
-          altResponse.data.pipe(unzipper.Extract({ path: tempDir }))
-            .on("close", resolve)
-            .on("error", reject);
-        });
-        core.info(`Downloaded and extracted from alternative URL to ${tempDir}`);
-      } else {
-        throw error;
-      }
+    if (error.response && isTag) {
+      const altZipUrl = `https://github.com/${repo}/archive/refs/heads/${ref}.zip`;
+      const altResponse = await axios({
+        url: altZipUrl,
+        method: "GET",
+        responseType: "stream",
+        maxRedirects: 5
+      });
+      await new Promise((resolve, reject) => {
+        altResponse.data.pipe(unzipper.Extract({ path: tempDir })).on("close", resolve).on("error", reject);
+      });
     } else {
       throw error;
     }
   }
-  core.debug(`Temporary directory contents: ${fs.readdirSync(tempDir).join(', ')}`);
   const repoName = repo.split("/")[1];
   const extractedFolder = path.join(tempDir, `${repoName}-${ref}`);
   if (!fs.existsSync(extractedFolder)) {
     const tempContents = fs.readdirSync(tempDir);
     if (tempContents.length === 1 && fs.lstatSync(path.join(tempDir, tempContents[0])).isDirectory()) {
-      const alternateFolder = path.join(tempDir, tempContents[0]);
-      core.info(`Using alternative extracted folder: ${alternateFolder}`);
-      return alternateFolder;
+      return path.join(tempDir, tempContents[0]);
     } else {
-      throw new Error(`Extracted folder ${extractedFolder} not found and could not determine alternative.`);
+      throw new Error(`Extracted folder ${extractedFolder} not found.`);
     }
   }
   return extractedFolder;
@@ -273,30 +204,21 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   } else {
     throw new Error(`Neither action.yml nor action.yaml found in ${actionDir}`);
   }
-
   const entryPoint = actionConfig.runs && actionConfig.runs.main;
   if (!entryPoint) {
     throw new Error("Entry point (runs.main) not defined in action metadata");
   }
-  core.info(`Nested action entry point: ${entryPoint}`);
-
   const entryFile = path.join(actionDir, entryPoint);
   if (!fs.existsSync(entryFile)) {
     throw new Error(`Entry file ${entryFile} does not exist.`);
   }
-
   const pkgJsonPath = path.join(actionDir, "package.json");
   if (fs.existsSync(pkgJsonPath)) {
-    core.info("Installing dependencies for nested action...");
     await exec.exec("npm", ["install"], { cwd: actionDir });
   }
-
   const envVars = { ...process.env };
-  // For testing, force the nested action to see a value for INPUT_WHO_TO_GREET
   envVars["INPUT_WHO_TO_GREET"] = envVars["INPUT_WHO_TO_GREET"] || "Sigstore";
-  core.info(`For testing, setting INPUT_WHO_TO_GREET to: ${envVars["INPUT_WHO_TO_GREET"]}`);
 
-  // Build the witness run command
   const cmd = ["run"];
   if (enableSigstore) {
     fulcio = fulcio || "https://fulcio.sigstore.dev";
@@ -305,9 +227,9 @@ async function runActionWithWitness(actionDir, witnessOptions) {
     timestampServers = "https://freetsa.org/tsr " + timestampServers;
   }
   if (attestations.length) {
-    attestations.forEach((attestation) => {
+    attestations.forEach(attestation => {
       attestation = attestation.trim();
-      if (attestation.length > 0) {
+      if (attestation) {
         cmd.push(`-a=${attestation}`);
       }
     });
@@ -324,9 +246,9 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   if (fulcioOidcIssuer) cmd.push(`--signer-fulcio-oidc-issuer=${fulcioOidcIssuer}`);
   if (fulcioToken) cmd.push(`--signer-fulcio-token=${fulcioToken}`);
   if (intermediates.length) {
-    intermediates.forEach((intermediate) => {
+    intermediates.forEach(intermediate => {
       intermediate = intermediate.trim();
-      if (intermediate.length > 0) {
+      if (intermediate) {
         cmd.push(`-i=${intermediate}`);
       }
     });
@@ -337,70 +259,29 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   if (spiffeSocket) cmd.push(`--spiffe-socket=${spiffeSocket}`);
   if (step) cmd.push(`-s=${step}`);
   if (timestampServers) {
-    const timestampServerValues = timestampServers.split(" ");
-    timestampServerValues.forEach((timestampServer) => {
+    timestampServers.split(" ").forEach(timestampServer => {
       timestampServer = timestampServer.trim();
-      if (timestampServer.length > 0) {
+      if (timestampServer) {
         cmd.push(`--timestamp-servers=${timestampServer}`);
       }
     });
   }
   if (trace) cmd.push(`--trace=${trace}`);
   if (outfile) cmd.push(`--outfile=${outfile}`);
-
-  // Instead of invoking node directly, run a shell command that exports the variable before running node
-  const newNodeCmd = 'sh';
-  const newNodeArgs = ['-c', `export INPUT_WHO_TO_GREET=${envVars["INPUT_WHO_TO_GREET"]} && node ${entryFile}`];
-  const runArray = ["witness", ...cmd, "--", newNodeCmd, ...newNodeArgs];
-  const commandString = runArray.join(" ");
-  core.info(`Running witness command: ${commandString}`);
-
-  const execOptions = {
-    cwd: actionDir,
-    env: envVars,
-    listeners: {
-      stdout: (data) => { process.stdout.write(data.toString()); },
-      stderr: (data) => { process.stderr.write(data.toString()); }
-    }
-  };
-
-  let output = '';
-  await exec.exec('sh', ['-c', commandString], {
-    ...execOptions,
-    listeners: {
-      ...execOptions.listeners,
-      stdout: (data) => {
-        const str = data.toString();
-        output += str;
-        process.stdout.write(str);
-      },
-      stderr: (data) => {
-        const str = data.toString();
-        output += str;
-        process.stderr.write(str);
-      }
-    }
-  });
-
-  return output;
+  
+  // Run the nested action directly with node, passing envVars
+  await exec.exec("node", [entryFile], { cwd: actionDir, env: envVars });
+  return "";
 }
 
 function extractDesiredGitOIDs(output) {
-  const lines = output.split("\n");
-  const desiredSubstring = "Stored in archivista as ";
   const matchArray = [];
-  console.log("Looking for GitOID in the output");
-  for (const line of lines) {
-    const startIndex = line.indexOf(desiredSubstring);
-    if (startIndex !== -1) {
-      console.log("Checking line: ", line);
-      const match = line.match(/[0-9a-fA-F]{64}/);
-      if (match) {
-        console.log("Found GitOID: ", match[0]);
-        matchArray.push(match[0]);
-      }
+  output.split("\n").forEach(line => {
+    const match = line.match(/[0-9a-fA-F]{64}/);
+    if (match) {
+      matchArray.push(match[0]);
     }
-  }
+  });
   return matchArray;
 }
 
@@ -412,18 +293,6 @@ function parseActionRef(refString) {
   return parts;
 }
 
-run()
-  .then(() => {
-    core.debug('Action wrapper completed successfully');
-    setTimeout(() => {
-      core.debug('Forcing process exit to prevent hanging');
-      process.exit(0);
-    }, 500);
-  })
-  .catch(error => {
-    core.setFailed(`Action wrapper failed: ${error.message}`);
-    setTimeout(() => {
-      core.debug('Forcing process exit to prevent hanging');
-      process.exit(1);
-    }, 500);
-  });
+run().catch(error => {
+  core.setFailed(`Wrapper action failed: ${error.message}`);
+});
