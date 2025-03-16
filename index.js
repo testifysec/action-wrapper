@@ -197,8 +197,28 @@ async function run() {
     }
   } catch (error) {
     core.setFailed(`Wrapper action failed: ${error.message}`);
+    
+    // Provide more detailed error information
     if (error.response) {
       core.error(`HTTP status: ${error.response.status}`);
+      core.error(`Response data: ${JSON.stringify(error.response.data || {})}`);
+      core.error(`Response headers: ${JSON.stringify(error.response.headers || {})}`);
+      
+      if (error.response.status === 404) {
+        core.error(`A 404 error occurred. This might indicate that the specified Witness version doesn't exist.`);
+        core.error(`Check https://github.com/testifysec/witness/releases for available versions.`);
+        core.error(`You might want to update the 'witness-version' input parameter in your workflow.`);
+      }
+    }
+    
+    // Log the full error for debugging
+    core.debug(`Full error object: ${JSON.stringify(error)}`);
+    
+    // Check for specific error types and give helpful messages
+    if (error.code === 'ENOENT') {
+      core.error(`File not found error. Check that all paths are correct and files exist.`);
+    } else if (error.code === 'EACCES') {
+      core.error(`Permission denied error. Check file permissions.`);
     }
   }
 }
@@ -207,58 +227,113 @@ async function run() {
 async function downloadWitness(version, installDir) {
   // Check if Witness is already in the tool cache
   let witnessPath = tc.find("witness", version);
-  console.log("Cached Witness Path: " + witnessPath);
+  core.info("Cached Witness Path: " + witnessPath);
   
   if (!witnessPath) {
-    console.log("Witness not found in cache, downloading now");
+    core.info("Witness not found in cache, downloading now");
     let witnessTar;
+    let downloadUrl = "";
     
     // Determine the OS-specific download URL
     if (process.platform === "win32") {
-      witnessTar = await tc.downloadTool(
-        "https://github.com/in-toto/witness/releases/download/v" +
-          version +
-          "/witness_" +
-          version +
-          "_windows_amd64.tar.gz"
-      );
+      downloadUrl = `https://github.com/testifysec/witness/releases/download/v${version}/witness_${version}_windows_amd64.tar.gz`;
     } else if (process.platform === "darwin") {
-      witnessTar = await tc.downloadTool(
-        "https://github.com/in-toto/witness/releases/download/v" +
-          version +
-          "/witness_" +
-          version +
-          "_darwin_amd64.tar.gz"
-      );
+      downloadUrl = `https://github.com/testifysec/witness/releases/download/v${version}/witness_${version}_darwin_amd64.tar.gz`;
     } else {
-      witnessTar = await tc.downloadTool(
-        "https://github.com/in-toto/witness/releases/download/v" +
-          version +
-          "/witness_" +
-          version +
-          "_linux_amd64.tar.gz"
-      );
+      downloadUrl = `https://github.com/testifysec/witness/releases/download/v${version}/witness_${version}_linux_amd64.tar.gz`;
+    }
+    
+    core.info(`Downloading Witness from: ${downloadUrl}`);
+
+    try {
+      // Try the TestifySec repo first (this is likely where Witness is now)
+      witnessTar = await tc.downloadTool(downloadUrl);
+    } catch (error) {
+      // If that fails, try the in-toto repo
+      const fallbackUrl = downloadUrl.replace('testifysec', 'in-toto');
+      core.info(`Primary download failed. Trying fallback URL: ${fallbackUrl}`);
+      
+      try {
+        witnessTar = await tc.downloadTool(fallbackUrl);
+      } catch (fallbackError) {
+        core.error(`Failed to download Witness from both repositories.`);
+        core.error(`Primary URL error: ${error.message}`);
+        core.error(`Fallback URL error: ${fallbackError.message}`);
+        
+        // Suggest alternative versions to try
+        core.error(`Try a different version (suggested: 0.3.0, 0.2.12, 0.2.10) or check https://github.com/testifysec/witness/releases for available versions.`);
+        throw new Error(`Could not download Witness v${version}. Please check available versions.`);
+      }
     }
 
     // Create the install directory if it doesn't exist
     if (!fs.existsSync(installDir)) {
-      console.log("Creating witness install directory at " + installDir);
+      core.info("Creating witness install directory at " + installDir);
       fs.mkdirSync(installDir, { recursive: true });
     }
 
     // Extract and cache Witness
-    console.log("Extracting witness at: " + installDir);
+    core.info("Extracting witness at: " + installDir);
     witnessPath = await tc.extractTar(witnessTar, installDir);
     
-    const cachedPath = await tc.cacheFile(
-      path.join(witnessPath, "witness"),
-      "witness",
-      "witness",
-      version
-    );
-    console.log("Witness cached at: " + cachedPath);
-    
-    witnessPath = cachedPath;
+    try {
+      const witnessExecutable = path.join(witnessPath, "witness");
+      
+      // Check if the witness executable exists in the expected path
+      if (!fs.existsSync(witnessExecutable)) {
+        core.info("Witness executable not found at expected path, looking for it...");
+        // Look for the witness executable in the extracted directory
+        const files = fs.readdirSync(witnessPath);
+        core.info(`Files in extracted directory: ${files.join(', ')}`);
+        
+        // Try to find it in subdirectories
+        let foundWitness = null;
+        for (const file of files) {
+          const filePath = path.join(witnessPath, file);
+          if (fs.statSync(filePath).isDirectory()) {
+            const subFiles = fs.readdirSync(filePath);
+            core.info(`Files in ${file}: ${subFiles.join(', ')}`);
+            if (subFiles.includes('witness')) {
+              foundWitness = path.join(filePath, 'witness');
+              break;
+            }
+          }
+        }
+        
+        if (foundWitness) {
+          core.info(`Found witness at: ${foundWitness}`);
+          const cachedPath = await tc.cacheFile(
+            foundWitness,
+            "witness",
+            "witness",
+            version
+          );
+          core.info("Witness cached at: " + cachedPath);
+          witnessPath = cachedPath;
+        } else {
+          throw new Error("Witness executable not found in extracted archive");
+        }
+      } else {
+        const cachedPath = await tc.cacheFile(
+          witnessExecutable,
+          "witness",
+          "witness",
+          version
+        );
+        core.info("Witness cached at: " + cachedPath);
+        witnessPath = cachedPath;
+      }
+    } catch (error) {
+      core.error(`Error caching Witness: ${error.message}`);
+      // Display directory contents for debugging
+      try {
+        const files = fs.readdirSync(witnessPath);
+        core.info(`Files in extracted directory: ${files.join(', ')}`);
+      } catch (e) {
+        core.error(`Could not list directory contents: ${e.message}`);
+      }
+      throw error;
+    }
   }
 
   // Add Witness to the PATH

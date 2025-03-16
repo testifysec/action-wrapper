@@ -11,9 +11,9 @@ inputs:
 
   # Witness Installation
   witness-version:
-    description: "Version of Witness to use"
+    description: "Version of Witness to use (check https://github.com/testifysec/witness/releases for valid versions)"
     required: false
-    default: "0.2.11"
+    default: "0.3.0"
   witness-install-dir:
     description: "Directory to install Witness"
     required: false
