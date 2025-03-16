@@ -63,7 +63,7 @@ jobs:
           fi
       
       - name: Upload strace logs as artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: strace-logs
           path: ${{ steps.strace-test.outputs.strace-log }}

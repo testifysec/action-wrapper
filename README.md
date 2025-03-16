@@ -107,7 +107,7 @@ jobs:
     strace-options: "-f -e trace=network,write,open,close -o /tmp/trace.log"
 
 - name: Upload Strace Results
-  uses: actions/upload-artifact@v3
+  uses: actions/upload-artifact@v4
   with:
     name: strace-logs
     path: ${{ steps.strace-action.outputs.strace-log }}
