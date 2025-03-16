@@ -24,7 +24,7 @@ process.on('SIGTERM', () => {
 // Set an absolute maximum timeout for the entire action (30 minutes)
 const MAX_ACTION_DURATION_MS = 30 * 60 * 1000;
 const actionTimeoutId = setTimeout(() => {
-  core.warning(`Action timed out after ${MAX_ACTION_DURATION_MS/60000} minutes. This is likely a bug in the action wrapper. Forcing exit.`);
+  core.warning(`Action timed out after ${MAX_ACTION_DURATION_MS / 60000} minutes. This is likely a bug in the action wrapper. Forcing exit.`);
   process.exit(1);
 }, MAX_ACTION_DURATION_MS);
 
@@ -36,14 +36,14 @@ async function run() {
     // Step 1: Get Witness-related inputs
     const witnessVersion = core.getInput("witness-version") || "0.2.11";
     const witnessInstallDir = core.getInput("witness-install-dir") || "./";
-    
+
     // Step 2: First download Witness binary
     await downloadWitness(witnessVersion, witnessInstallDir);
-    
+
     // Step 3: Now handle the GitHub Action wrapping
     const actionRef = core.getInput("action-ref");
     const downloadedActionDir = await downloadAndExtractAction(actionRef);
-    
+
     // Step 4: Prepare witness command
     const step = core.getInput("step");
     const archivistaServer = core.getInput("archivista-server");
@@ -63,16 +63,19 @@ async function run() {
     const productExcludeGlob = core.getInput("product-exclude-glob");
     const productIncludeGlob = core.getInput("product-include-glob");
     const spiffeSocket = core.getInput("spiffe-socket");
-    
+
     let timestampServers = core.getInput("timestamp-servers");
     const trace = core.getInput("trace");
     const enableSigstore = core.getInput("enable-sigstore") === "true";
-    
+
     const exportLink = core.getInput("attestor-link-export") === "true";
     const exportSBOM = core.getInput("attestor-sbom-export") === "true";
     const exportSLSA = core.getInput("attestor-slsa-export") === "true";
     const mavenPOM = core.getInput("attestor-maven-pom-path");
-    
+
+
+
+
     // Step 5: Run the downloaded action with Witness
     const witnessOutput = await runActionWithWitness(
       downloadedActionDir,
@@ -101,26 +104,26 @@ async function run() {
         mavenPOM,
       }
     );
-    
+
     // Step 6: Process the output
     const gitOIDs = extractDesiredGitOIDs(witnessOutput);
-    
+
     for (const gitOID of gitOIDs) {
       console.log("Extracted GitOID:", gitOID);
-      
+
       // Print the GitOID to the output
       core.setOutput("git_oid", gitOID);
-      
+
       // Construct the artifact URL using Archivista server and GitOID
       const artifactURL = `${archivistaServer}/download/${gitOID}`;
-      
+
       // Add Job Summary with Markdown content
       const summaryHeader = `
 ## Attestations Created
 | Step | Attestors Run | Attestation GitOID
 | --- | --- | --- |
 `;
-      
+
       // Try to access the step summary file
       try {
         if (process.env.GITHUB_STEP_SUMMARY) {
@@ -128,18 +131,18 @@ async function run() {
           const summaryFile = fs.readFileSync(process.env.GITHUB_STEP_SUMMARY, {
             encoding: "utf-8",
           });
-          
+
           // Check if the file contains the header
           const headerExists = summaryFile.includes(summaryHeader.trim());
-          
+
           // If the header does not exist, append it to the file
           if (!headerExists) {
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summaryHeader);
           }
-          
+
           // Construct the table row for the current step
           const tableRow = `| ${step} | ${attestations.join(", ")} | [${gitOID}](${artifactURL}) |\n`;
-          
+
           // Append the table row to the file
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, tableRow);
         }
@@ -160,35 +163,35 @@ async function downloadWitness(version, installDir) {
   // Check if Witness is already in the tool cache
   let witnessPath = tc.find("witness", version);
   console.log("Cached Witness Path: " + witnessPath);
-  
+
   if (!witnessPath) {
     console.log("Witness not found in cache, downloading now");
     let witnessTar;
-    
+
     // Determine the OS-specific download URL
     if (process.platform === "win32") {
       witnessTar = await tc.downloadTool(
         "https://github.com/in-toto/witness/releases/download/v" +
-          version +
-          "/witness_" +
-          version +
-          "_windows_amd64.tar.gz"
+        version +
+        "/witness_" +
+        version +
+        "_windows_amd64.tar.gz"
       );
     } else if (process.platform === "darwin") {
       witnessTar = await tc.downloadTool(
         "https://github.com/in-toto/witness/releases/download/v" +
-          version +
-          "/witness_" +
-          version +
-          "_darwin_amd64.tar.gz"
+        version +
+        "/witness_" +
+        version +
+        "_darwin_amd64.tar.gz"
       );
     } else {
       witnessTar = await tc.downloadTool(
         "https://github.com/in-toto/witness/releases/download/v" +
-          version +
-          "/witness_" +
-          version +
-          "_linux_amd64.tar.gz"
+        version +
+        "/witness_" +
+        version +
+        "_linux_amd64.tar.gz"
       );
     }
 
@@ -201,7 +204,7 @@ async function downloadWitness(version, installDir) {
     // Extract and cache Witness
     console.log("Extracting witness at: " + installDir);
     witnessPath = await tc.extractTar(witnessTar, installDir);
-    
+
     const cachedPath = await tc.cacheFile(
       path.join(witnessPath, "witness"),
       "witness",
@@ -209,7 +212,7 @@ async function downloadWitness(version, installDir) {
       version
     );
     console.log("Witness cached at: " + cachedPath);
-    
+
     witnessPath = cachedPath;
   }
 
@@ -230,7 +233,7 @@ async function downloadAndExtractAction(actionRef) {
   const zipUrl = isTag
     ? `https://github.com/${repo}/archive/refs/tags/${ref}.zip`
     : `https://github.com/${repo}/archive/refs/heads/${ref}.zip`;
-  
+
   core.info(`Downloading action from: ${zipUrl}`);
 
   // Create a temporary directory for extraction
@@ -247,7 +250,7 @@ async function downloadAndExtractAction(actionRef) {
       },
       maxRedirects: 5 // Handle redirects
     });
-    
+
     await new Promise((resolve, reject) => {
       response.data
         .pipe(unzipper.Extract({ path: tempDir }))
@@ -263,14 +266,14 @@ async function downloadAndExtractAction(actionRef) {
         core.info("Attempting alternative download URL for branches...");
         const altZipUrl = `https://github.com/${repo}/archive/refs/heads/${ref}.zip`;
         core.info(`Trying alternative URL: ${altZipUrl}`);
-        
+
         const altResponse = await axios({
           url: altZipUrl,
           method: "GET",
           responseType: "stream",
           maxRedirects: 5
         });
-        
+
         await new Promise((resolve, reject) => {
           altResponse.data
             .pipe(unzipper.Extract({ path: tempDir }))
@@ -310,7 +313,11 @@ async function downloadAndExtractAction(actionRef) {
 
 // Run an action with Witness
 async function runActionWithWitness(actionDir, witnessOptions) {
-  const {
+
+
+
+  // To this:
+  let {
     step,
     archivistaServer,
     attestations,
@@ -335,13 +342,14 @@ async function runActionWithWitness(actionDir, witnessOptions) {
     mavenPOM,
   } = witnessOptions;
 
+
   // Read action.yml from the downloaded action
   const actionYmlPath = path.join(actionDir, "action.yml");
   // Some actions use action.yaml instead of action.yml
   const actionYamlPath = path.join(actionDir, "action.yaml");
-  
+
   let actionConfig;
-  
+
   if (fs.existsSync(actionYmlPath)) {
     actionConfig = yaml.load(fs.readFileSync(actionYmlPath, "utf8"));
   } else if (fs.existsSync(actionYamlPath)) {
@@ -349,7 +357,7 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   } else {
     throw new Error(`Neither action.yml nor action.yaml found in ${actionDir}`);
   }
-  
+
   const entryPoint = actionConfig.runs && actionConfig.runs.main;
   if (!entryPoint) {
     throw new Error("Entry point (runs.main) not defined in action metadata");
@@ -373,7 +381,7 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   // We'll set these as environment variables that GitHub Actions uses
   const inputPrefix = 'input-';
   const nestedInputs = {};
-  
+
   // Get all inputs that start with 'input-'
   Object.keys(process.env)
     .filter(key => key.startsWith('INPUT_'))
@@ -385,13 +393,13 @@ async function runActionWithWitness(actionDir, witnessOptions) {
         core.info(`Passing input '${nestedInputName}' to nested action`);
       }
     });
-  
+
   // Set environment variables for the nested action
   const envVars = { ...process.env };
   Object.keys(nestedInputs).forEach(name => {
     envVars[`INPUT_${name.toUpperCase()}`] = nestedInputs[name];
   });
-  
+
   // Build the witness run command
   const cmd = ["run"];
 
@@ -452,17 +460,17 @@ async function runActionWithWitness(actionDir, witnessOptions) {
 
   if (trace) cmd.push(`--trace=${trace}`);
   if (outfile) cmd.push(`--outfile=${outfile}`);
-  
+
   // Prepare the command to run the action
   const nodeCmd = 'node';
   const nodeArgs = [entryFile];
-  
+
   // Execute the command and capture its output
   const runArray = ["witness", ...cmd, "--", nodeCmd, ...nodeArgs],
     commandString = runArray.join(" ");
 
   core.info(`Running witness command: ${commandString}`);
-  
+
   // Set up options for execution
   const execOptions = {
     cwd: actionDir,
@@ -476,10 +484,10 @@ async function runActionWithWitness(actionDir, witnessOptions) {
       }
     }
   };
-  
+
   // Execute and capture output
   let output = '';
-  
+
   await exec.exec('sh', ['-c', commandString], {
     ...execOptions,
     listeners: {
@@ -496,7 +504,7 @@ async function runActionWithWitness(actionDir, witnessOptions) {
       }
     }
   });
-  
+
   return output;
 }
 
