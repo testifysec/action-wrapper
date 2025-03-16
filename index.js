@@ -73,9 +73,6 @@ async function run() {
     const exportSLSA = core.getInput("attestor-slsa-export") === "true";
     const mavenPOM = core.getInput("attestor-maven-pom-path");
 
-
-
-
     // Step 5: Run the downloaded action with Witness
     const witnessOutput = await runActionWithWitness(
       downloadedActionDir,
@@ -313,10 +310,6 @@ async function downloadAndExtractAction(actionRef) {
 
 // Run an action with Witness
 async function runActionWithWitness(actionDir, witnessOptions) {
-
-
-
-  // To this:
   let {
     step,
     archivistaServer,
@@ -341,7 +334,6 @@ async function runActionWithWitness(actionDir, witnessOptions) {
     exportSLSA,
     mavenPOM,
   } = witnessOptions;
-
 
   // Read action.yml from the downloaded action
   const actionYmlPath = path.join(actionDir, "action.yml");
@@ -377,34 +369,8 @@ async function runActionWithWitness(actionDir, witnessOptions) {
     await exec.exec("npm", ["install"], { cwd: actionDir });
   }
 
-  // Get all inputs with 'input-' prefix and pass them to the nested action
-  // We'll set these as environment variables that GitHub Actions uses
-  const inputPrefix = 'input-';
-  const nestedInputs = {};
-
-  //log all the inputs
-  Object.keys(process.env).forEach(key => {
-    core.info(`Key: ${key}, Value: ${process.env[key]}`);
-  }
-  );
-
-  // Get all inputs that start with 'input-'
-  Object.keys(process.env)
-    .filter(key => key.startsWith('INPUT_'))
-    .forEach(key => {
-      const inputName = key.substring(6).toLowerCase(); // Remove 'INPUT_' prefix
-      if (inputName.startsWith(inputPrefix)) {
-        const nestedInputName = inputName.substring(inputPrefix.length);
-        nestedInputs[nestedInputName] = process.env[key];
-        core.info(`Passing input '${nestedInputName}' to nested action`);
-      }
-    });
-
-  // Set environment variables for the nested action
+  // Instead of filtering, pass all environment variables to the nested action
   const envVars = { ...process.env };
-  Object.keys(nestedInputs).forEach(name => {
-    envVars[`INPUT_${name.toUpperCase()}`] = nestedInputs[name];
-  });
 
   // Build the witness run command
   const cmd = ["run"];
@@ -480,7 +446,7 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   // Set up options for execution
   const execOptions = {
     cwd: actionDir,
-    env: process.env,
+    env: envVars,
     listeners: {
       stdout: (data) => {
         process.stdout.write(data.toString());
