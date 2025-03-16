@@ -1,6 +1,6 @@
 # TestifySec Action Wrapper
 
-A GitHub Action that downloads and executes another GitHub Action dynamically.
+A GitHub Action that downloads and executes another GitHub Action dynamically with optional strace instrumentation.
 
 ## Usage
 
@@ -23,10 +23,18 @@ jobs:
 
 ## Inputs
 
-| Input | Description | Required |
-|-------|-------------|----------|
-| `action-ref` | Reference to the nested action (e.g., owner/repo@ref) | Yes |
-| `extra-args` | Extra arguments to pass to the nested action | No |
+| Input | Description | Required | Default |
+|-------|-------------|----------|---------|
+| `action-ref` | Reference to the nested action (e.g., owner/repo@ref) | Yes | |
+| `extra-args` | Extra arguments to pass to the nested action | No | |
+| `enable-strace` | Enable strace instrumentation | No | `true` |
+| `strace-options` | Options to pass to strace | No | `-f -e trace=network,write,open` |
+
+## Outputs
+
+| Output | Description |
+|--------|-------------|
+| `strace-log` | Path to the strace output log file (if strace was enabled and successful) |
 
 ## Features
 
@@ -35,6 +43,7 @@ jobs:
 - **Format Flexibility**: Supports both `action.yml` and `action.yaml` metadata files
 - **Robust Error Handling**: Attempts alternative download URLs if the first one fails
 - **Dependency Management**: Automatically installs dependencies for the wrapped action
+- **Strace Integration**: Optionally traces system calls made by the wrapped action
 
 ## How It Works
 
@@ -50,7 +59,10 @@ jobs:
 4. **Dependency Installation (Optional):**  
    If a `package.json` is present in the nested action, it runs `npm install` to install dependencies.
 
-5. **Executing the Nested Action:**  
+5. **Strace Instrumentation (Optional):**  
+   If strace is enabled and available, the action runs the nested action with strace to trace system calls.
+
+6. **Executing the Nested Action:**  
    Finally, the wrapper runs the nested action's entry file using Node.js. Any extra arguments provided via the `extra-args` input are passed along.
 
 ## Examples
@@ -81,4 +93,32 @@ jobs:
   with:
     action-ref: "some/action@v1"
     extra-args: "--input1 value1 --input2 value2"
+```
+
+### Using with Strace
+
+```yaml
+- name: Run with Strace
+  id: strace-action
+  uses: testifysec/action-wrapper@v1
+  with:
+    action-ref: "actions/hello-world-javascript-action@main"
+    enable-strace: "true"
+    strace-options: "-f -e trace=network,write,open,close -o /tmp/trace.log"
+
+- name: Upload Strace Results
+  uses: actions/upload-artifact@v3
+  with:
+    name: strace-logs
+    path: ${{ steps.strace-action.outputs.strace-log }}
+```
+
+### Disabling Strace
+
+```yaml
+- name: Run Without Strace
+  uses: testifysec/action-wrapper@v1
+  with:
+    action-ref: "actions/hello-world-javascript-action@main"
+    enable-strace: "false"
 ```

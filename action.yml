@@ -1,5 +1,5 @@
 name: "TestifySec Action Wrapper"
-description: "Downloads and executes another GitHub Action"
+description: "Downloads and executes another GitHub Action with optional strace instrumentation"
 inputs:
   action-ref:
     description: "Reference to the nested action (e.g., owner/repo@ref)"
@@ -7,6 +7,16 @@ inputs:
   extra-args:
     description: "Extra arguments to pass to the nested action"
     required: false
+  strace-options:
+    description: "Options to pass to strace (default: '-f -e trace=network,write,open')"
+    required: false
+  enable-strace:
+    description: "Enable strace instrumentation (default: true)"
+    required: false
+    default: "true"
+outputs:
+  strace-log:
+    description: "Path to the strace output log file (if strace was enabled and successful)"
 runs:
   using: "node16"
   main: "index.js"

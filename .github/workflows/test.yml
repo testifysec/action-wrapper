@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  test:
+  test-basic:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -21,7 +21,49 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Test wrapper with a simple action
+      - name: Test wrapper with a simple action (no strace)
         uses: ./
         with:
           action-ref: "actions/hello-world-javascript-action@main"
+          enable-strace: "false"
+
+  test-strace:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Install strace
+        run: sudo apt-get update && sudo apt-get install -y strace
+
+      - name: Test wrapper with strace
+        id: strace-test
+        uses: ./
+        with:
+          action-ref: "actions/hello-world-javascript-action@main"
+          enable-strace: "true"
+          strace-options: "-f -e trace=open,close,network,write"
+      
+      - name: Check strace output
+        run: |
+          if [ -f "${{ steps.strace-test.outputs.strace-log }}" ]; then
+            echo "Strace log file exists at ${{ steps.strace-test.outputs.strace-log }}"
+            head -n 20 "${{ steps.strace-test.outputs.strace-log }}"
+          else
+            echo "Strace log file not found!"
+            exit 1
+          fi
+      
+      - name: Upload strace logs as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: strace-logs
+          path: ${{ steps.strace-test.outputs.strace-log }}

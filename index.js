@@ -12,6 +12,8 @@ async function run() {
     // Get inputs
     const actionRef = core.getInput("action-ref");
     const extraArgs = core.getInput("extra-args") || "";
+    const straceOptions = core.getInput("strace-options") || "-f -e trace=network,write,open";
+    const enableStrace = core.getInput("enable-strace").toLowerCase() === "true";
 
     // Parse action-ref (expects format: owner/repo@ref)
     const [repo, ref] = parseActionRef(actionRef);
@@ -109,6 +111,10 @@ async function run() {
 }
 
 async function processAction(actionDir, extraArgs) {
+  // Get strace options from input
+  const straceOptions = core.getInput("strace-options") || "-f -e trace=network,write,open";
+  const enableStrace = core.getInput("enable-strace").toLowerCase() === "true";
+  
   // Read action.yml from the downloaded action
   const actionYmlPath = path.join(actionDir, "action.yml");
   // Some actions use action.yaml instead of action.yml
@@ -145,8 +151,45 @@ async function processAction(actionDir, extraArgs) {
 
   // Execute the nested action using Node.js
   const args = extraArgs.split(/\s+/).filter((a) => a); // split and remove empty strings
-  core.info(`Executing nested action: node ${entryFile} ${args.join(" ")}`);
-  await exec.exec("node", [entryFile, ...args], { cwd: actionDir });
+  
+  // Use strace if enabled and available
+  if (enableStrace) {
+    core.info(`Strace enabled with options: ${straceOptions}`);
+    core.info(`Executing nested action with strace: strace ${straceOptions} node ${entryFile} ${args.join(" ")}`);
+    
+    try {
+      // First, check if strace is installed
+      await exec.exec("which", ["strace"]);
+      
+      // Parse strace options into an array
+      const straceOptionsList = straceOptions.split(/\s+/).filter(Boolean);
+      
+      // Create output file for strace results
+      const stracelLogFile = path.join(process.env.GITHUB_WORKSPACE || '.', 'strace-output.log');
+      
+      // Add output file option if not already specified
+      if (!straceOptionsList.includes('-o') && !straceOptionsList.includes('--output')) {
+        straceOptionsList.push('-o', stracelLogFile);
+        core.info(`Strace output will be saved to: ${stracelLogFile}`);
+      }
+      
+      // Use strace to wrap the node process
+      await exec.exec("strace", [...straceOptionsList, "node", entryFile, ...args], { cwd: actionDir });
+      
+      // Export the strace log path as an output
+      core.setOutput("strace-log", stracelLogFile);
+      
+    } catch (error) {
+      // If strace is not available, fall back to running without it
+      core.warning(`Strace is not available: ${error.message}`);
+      core.info(`Executing nested action without strace: node ${entryFile} ${args.join(" ")}`);
+      await exec.exec("node", [entryFile, ...args], { cwd: actionDir });
+    }
+  } else {
+    // Run without strace
+    core.info(`Strace disabled. Executing nested action: node ${entryFile} ${args.join(" ")}`);
+    await exec.exec("node", [entryFile, ...args], { cwd: actionDir });
+  }
 }
 
 function parseActionRef(refString) {
