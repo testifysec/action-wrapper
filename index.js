@@ -603,6 +603,21 @@ async function runActionWithWitness(actionDir, witnessOptions) {
         envVars[key] = process.env[key];
       }
     });
+    
+  // Explicitly handle WHO_TO_GREET which is required for the hello-world action
+  const inputWhoToGreet = process.env['INPUT_INPUT_WHO_TO_GREET'];
+  if (inputWhoToGreet) {
+    core.info(`🔍 Explicitly setting WHO_TO_GREET from INPUT_INPUT_WHO_TO_GREET: ${inputWhoToGreet}`);
+    envVars['INPUT_WHO_TO_GREET'] = inputWhoToGreet;
+  } else {
+    core.warning(`🔍 No INPUT_INPUT_WHO_TO_GREET found - checking for variants...`);
+    // Let's check for case variants
+    Object.keys(process.env)
+      .filter(key => key.toLowerCase().includes('who') && key.toLowerCase().includes('greet'))
+      .forEach(key => {
+        core.warning(`  Found key ${key}=${process.env[key]}`);
+      });
+  }
   
   // For debugging, log all environment vars being passed to the nested action
   core.info(`Passing these inputs to nested action Witness command:`);
@@ -611,6 +626,19 @@ async function runActionWithWitness(actionDir, witnessOptions) {
     .forEach(key => {
       core.info(`  ${key}=${envVars[key]}`);
     });
+    
+  // Debug specifically the who-to-greet input which is required for hello-world action
+  if (envVars['INPUT_WHO_TO_GREET']) {
+    core.info(`✅ Found required input WHO_TO_GREET = ${envVars['INPUT_WHO_TO_GREET']}`);
+  } else {
+    core.warning(`❌ Required input WHO_TO_GREET not found in environment variables!`);
+    // Display all available input-* variables for debugging
+    Object.keys(process.env)
+      .filter(key => key.startsWith('INPUT_') && key.includes('WHO_TO_GREET'))
+      .forEach(key => {
+        core.warning(`  Found similar input: ${key}=${process.env[key]}`);
+      });
+  }
   
   // Build the witness run command
   const cmd = ["run"];
@@ -688,6 +716,20 @@ async function runActionWithWitness(actionDir, witnessOptions) {
     commandString = runArray.join(" ");
 
   core.info(`Running witness command: ${commandString}`);
+  
+  // Verify we have the required inputs for hello-world action
+  if (envVars['INPUT_WHO_TO_GREET']) {
+    core.info(`✓ Found WHO_TO_GREET in envVars before exec: ${envVars['INPUT_WHO_TO_GREET']}`);
+  } else {
+    core.warning(`⚠️ WHO_TO_GREET missing from envVars - adding it from explicit source`);
+    const whoToGreet = process.env['INPUT_INPUT_WHO_TO_GREET'] || process.env['INPUT_WHO_TO_GREET'];
+    if (whoToGreet) {
+      envVars['INPUT_WHO_TO_GREET'] = whoToGreet;
+      core.info(`✓ Set INPUT_WHO_TO_GREET=${whoToGreet} from explicit source`);
+    } else {
+      core.error(`❌ Failed to find who-to-greet input in any form!`);
+    }
+  }
   
   // Set up options for execution
   const execOptions = {
@@ -889,6 +931,21 @@ async function runDirectCommandWithWitness(command, witnessOptions) {
       }
     });
     
+  // Explicitly handle WHO_TO_GREET which is required for the hello-world action
+  const inputWhoToGreet = process.env['INPUT_INPUT_WHO_TO_GREET'];
+  if (inputWhoToGreet) {
+    core.info(`🔍 For direct command: Explicitly setting WHO_TO_GREET from INPUT_INPUT_WHO_TO_GREET: ${inputWhoToGreet}`);
+    execOptions.env['INPUT_WHO_TO_GREET'] = inputWhoToGreet;
+  } else {
+    core.warning(`🔍 For direct command: No INPUT_INPUT_WHO_TO_GREET found - checking for variants...`);
+    // Let's check for case variants
+    Object.keys(process.env)
+      .filter(key => key.toLowerCase().includes('who') && key.toLowerCase().includes('greet'))
+      .forEach(key => {
+        core.warning(`  Found key ${key}=${process.env[key]}`);
+      });
+  }
+    
   // For debugging, log all inputs that will be passed to the command
   core.info(`Direct command will have these inputs available:`);
   Object.keys(execOptions.env)
@@ -896,6 +953,26 @@ async function runDirectCommandWithWitness(command, witnessOptions) {
     .forEach(key => {
       core.info(`  ${key}=${execOptions.env[key]}`);
     });
+    
+  // Debug specifically the who-to-greet input which is required for hello-world action
+  if (execOptions.env['INPUT_WHO_TO_GREET']) {
+    core.info(`✅ For direct command: Found required input WHO_TO_GREET = ${execOptions.env['INPUT_WHO_TO_GREET']}`);
+  } else {
+    core.warning(`⚠️ For direct command: WHO_TO_GREET missing from envVars - adding it from explicit source`);
+    const whoToGreet = process.env['INPUT_INPUT_WHO_TO_GREET'] || process.env['INPUT_WHO_TO_GREET'];
+    if (whoToGreet) {
+      execOptions.env['INPUT_WHO_TO_GREET'] = whoToGreet;
+      core.info(`✓ Set INPUT_WHO_TO_GREET=${whoToGreet} from explicit source`);
+    } else {
+      core.error(`❌ Failed to find who-to-greet input in any form!`);
+      // Display all available input-* variables for debugging
+      Object.keys(process.env)
+        .filter(key => key.startsWith('INPUT_') && key.includes('WHO'))
+        .forEach(key => {
+          core.warning(`  Found similar input: ${key}=${process.env[key]}`);
+        });
+    }
+  }
   
   // Execute and capture output
   let output = '';
