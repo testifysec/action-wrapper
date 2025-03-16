@@ -372,6 +372,10 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   // Instead of filtering, pass all environment variables to the nested action
   const envVars = { ...process.env };
 
+  // For testing, force the nested action to see a value for INPUT_WHO_TO_GREET
+  envVars["INPUT_WHO_TO_GREET"] = envVars["INPUT_WHO_TO_GREET"] || "Sigstore";
+  core.info(`For testing, setting INPUT_WHO_TO_GREET to: ${envVars["INPUT_WHO_TO_GREET"]}`);
+
   // Build the witness run command
   const cmd = ["run"];
 
