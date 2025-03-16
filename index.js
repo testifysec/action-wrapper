@@ -591,13 +591,8 @@ async function runActionWithWitness(actionDir, witnessOptions) {
       }
     });
   
-  // Explicitly look for the who-to-greet input in various forms
-  let whoToGreetInput = Object.keys(process.env)
-    .filter(key => key.toUpperCase().includes('WHO') && key.toUpperCase().includes('GREET'))
-    .reduce((found, key) => {
-      core.info(`Found potential who-to-greet input: ${key}=${process.env[key]}`);
-      return found || process.env[key];
-    }, null);
+  // Always check the specific input parameter for who-to-greet
+  const whoToGreetInput = process.env['INPUT_WHO_TO_GREET'] || process.env['INPUT_WHO-TO-GREET'];
 
   // If found, ensure it's correctly set in the normalized format
   if (whoToGreetInput) {
@@ -929,13 +924,8 @@ async function runDirectCommandWithWitness(command, witnessOptions) {
       }
     });
     
-  // Explicitly look for the who-to-greet input in various forms
-  let whoToGreetInput = Object.keys(process.env)
-    .filter(key => key.toUpperCase().includes('WHO') && key.toUpperCase().includes('GREET'))
-    .reduce((found, key) => {
-      core.info(`For direct command: Found potential who-to-greet input: ${key}=${process.env[key]}`);
-      return found || process.env[key];
-    }, null);
+  // Always check the specific input parameter for who-to-greet
+  const whoToGreetInput = process.env['INPUT_WHO_TO_GREET'] || process.env['INPUT_WHO-TO-GREET'];
 
   // If found, ensure it's correctly set in the normalized format
   if (whoToGreetInput) {
