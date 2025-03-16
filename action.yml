@@ -1,10 +1,13 @@
 name: "TestifySec Action Wrapper with Witness"
 description: "Downloads and executes another GitHub Action with Witness attestation"
 inputs:
-  # Action Reference
+  # Action or Command
   action-ref:
     description: "Reference to the nested action (e.g., owner/repo@ref)"
-    required: true
+    required: false
+  command:
+    description: "Command to run with Witness (use this or action-ref)"
+    required: false
 
   # Witness Installation
   witness-version:

@@ -4,6 +4,8 @@ A GitHub Action that downloads and executes another GitHub Action with Witness a
 
 ## Usage
 
+### Running a GitHub Action with Witness Attestation
+
 ```yaml
 name: Example Workflow
 on: [push, pull_request]
@@ -30,6 +32,32 @@ jobs:
           archivista-server: "https://archivista.example.com"
 ```
 
+### Running a Direct Command with Witness Attestation
+
+```yaml
+name: Example Workflow
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      
+      - name: Run Command with Witness Attestation
+        id: command-attestation
+        uses: testifysec/action-wrapper@v4
+        with:
+          # Command to run
+          command: "echo hello > hello.txt"
+          
+          # Witness configuration
+          step: "command-step"
+          attestations: "command environment git"
+          enable-sigstore: "true"
+```
+
 ## How It Works
 
 This action combines the functionality of a GitHub Action wrapper with Witness attestation:
@@ -49,11 +77,14 @@ This action combines the functionality of a GitHub Action wrapper with Witness a
 
 ## Inputs
 
-### Action Reference
+### Action or Command
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `action-ref` | Reference to the nested action (e.g., owner/repo@ref) | Yes | |
+| `action-ref` | Reference to the nested action (e.g., owner/repo@ref) | No¹ | |
+| `command` | Command to run with Witness (use this or action-ref) | No¹ | |
+
+¹ Either `action-ref` or `command` must be provided
 
 ### Witness Installation
 
