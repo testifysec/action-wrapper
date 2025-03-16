@@ -1,0 +1,12 @@
+name: "TestifySec Action Wrapper"
+description: "Downloads and executes another GitHub Action"
+inputs:
+  action-ref:
+    description: "Reference to the nested action (e.g., owner/repo@ref)"
+    required: true
+  extra-args:
+    description: "Extra arguments to pass to the nested action"
+    required: false
+runs:
+  using: "node16"
+  main: "index.js"
