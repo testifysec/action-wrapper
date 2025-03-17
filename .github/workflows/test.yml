@@ -35,7 +35,7 @@ jobs:
           
           # Witness configuration
           step: test-sigstore
-          attestations: "environment git github slsa"
+          attestations: "environment github slsa"
           attestor-slsa-export: "true"
           enable-sigstore: "true"
           enable-archivista: "true"
