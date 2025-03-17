@@ -506,14 +506,18 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   const nodeCmd = 'node';
   const nodeArgs = [entryFile];
   
-  // Execute the command and capture its output
-  const runArray = ["witness", ...cmd, "--", nodeCmd, ...nodeArgs],
-    commandString = runArray.join(" ");
+  // Prepare environment variables explicitly for the nested action
+  const envVarsForCmd = Object.entries(nestedInputs).map(
+    ([name, value]) => `INPUT_${name.toUpperCase()}="${value.replace(/"/g, '\\"')}"`
+  );
+
+  // Build the command with explicit environment variables
+  const runArray = ["witness", ...cmd, "--", "env", ...envVarsForCmd, nodeCmd, ...nodeArgs];
+  const commandString = runArray.join(" ");
 
   core.info(`Running witness command: ${commandString}`);
   
   // Set up options for execution
-
   //debug print env vars
   console.log("Environment variables for nested action:");
   console.log
@@ -670,8 +674,29 @@ async function runDirectCommandWithWitness(command, witnessOptions) {
   // Parse the command into an array if it's not already
   const commandArray = command.match(/(?:[^\s"]+|"[^"]*")+/g) || [command];
   
+  // Get inputs with 'input-' prefix for the direct command as well
+  const inputPrefix = 'input-';
+  const nestedInputs = {};
+  
+  // Get all inputs that start with 'INPUT_'
+  Object.keys(process.env)
+    .filter(key => key.startsWith('INPUT_'))
+    .forEach(key => {
+      const inputName = key.substring(6).toLowerCase(); // Remove 'INPUT_' prefix
+      if (inputName.startsWith(inputPrefix)) {
+        const nestedInputName = inputName.substring(inputPrefix.length);
+        nestedInputs[nestedInputName] = process.env[key];
+        core.info(`Passing input '${nestedInputName}' to direct command`);
+      }
+    });
+    
+  // Prepare environment variables explicitly for the command
+  const envVarsForCmd = Object.entries(nestedInputs).map(
+    ([name, value]) => `INPUT_${name.toUpperCase()}="${value.replace(/"/g, '\\"')}"`
+  );
+  
   // Execute the command and capture its output
-  const runArray = ["witness", ...cmd, "--", ...commandArray];
+  const runArray = ["witness", ...cmd, "--", "env", ...envVarsForCmd, ...commandArray];
   const commandString = runArray.join(" ");
 
   core.info(`Running witness command: ${commandString}`);
