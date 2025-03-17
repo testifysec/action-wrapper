@@ -117,7 +117,7 @@ outputs:
   git_oid:
     description: "GitOID of the attestation (if created)"
 runs:
-  using: "node16"
+  using: "node20"
   main: "index.js"
 
 branding:
