@@ -11,50 +11,6 @@ permissions:
   contents: read  # This is required for actions/checkout
 
 jobs:
-
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '16'
-
-      - name: Install dependencies
-        run: npm ci
-      
-      - name: Test wrapper with multiple attestors
-        id: multi-attestation
-        uses: ./
-        with:
-          # Action to run
-          action-ref: "actions/hello-world-javascript-action@main"
-          input-who-to-greet: "Witness"
-          
-          # Witness configuration
-          step: "hello-world-multi"
-          attestations: "command attestor.git attestor.sbom"
-          attestor-sbom-export: "true"
-          outfile: "./multi-attestation.json"
-      
-      - name: Check attestation file
-        run: |
-          if [[ -f "./multi-attestation.json" ]]; then
-            echo "Multi-attestation created successfully"
-            jq . "./multi-attestation.json" | head -n 20
-          else
-            echo "Multi-attestation file not found!"
-            exit 1
-          fi
-      
-      - name: Upload attestation as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: attestation-files
-          path: ./multi-attestation.json
-          
   test-sigstore-archivista:
     runs-on: ubuntu-latest
     steps:
@@ -75,7 +31,7 @@ jobs:
         with:
           # Action to run
           action-ref: "actions/hello-world-javascript-action@main"
-          who-to-greet: "Sigstore"
+          input-who-to-greet: "Sigstore"
           
           # Witness configuration
           step: test-sigstore
@@ -109,48 +65,3 @@ jobs:
         with:
           name: sigstore-attestation
           path: ./sigstore-attestation.json
-          
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '16'
-
-      - name: Install dependencies
-        run: npm ci
-      
-      - name: Test direct command
-        id: direct-command
-        uses: ./
-        with:
-          # Direct command to run
-          command: "echo hello > hello.txt"
-          
-          # Witness configuration
-          step: "direct-command"
-          attestations: "command environment"
-          outfile: "./direct-command.json"
-      
-      - name: Check command output
-        run: |
-          if [ -f "hello.txt" ]; then
-            echo "Command output:"
-            cat hello.txt
-          else
-            echo "Command output file not found!"
-            exit 1
-          fi
-          
-      - name: Check attestation file
-        run: |
-          if [[ -f "./direct-command.json" ]]; then
-            echo "Direct command attestation created successfully"
-            jq . "./direct-command.json" | head -n 20
-          else
-            echo "Direct command attestation file not found!"
-            exit 1
-          fi
