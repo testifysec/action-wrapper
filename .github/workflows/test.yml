@@ -1,4 +1,4 @@
-name: Test Nested Action Wrapper
+name: Test Action Wrapper
 
 on:
   push:
@@ -7,9 +7,10 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
-  test:
+  test-basic:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -23,17 +24,56 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run nested action with wrapper (using time)
+      - name: Run basic hello-world test
         uses: ./
+        id: hello-test
         with:
-          action-ref: "actions/hello-world-javascript@v1"
-          extra-args: "who-to-greet time"
-          wrapper-command: "time"
+          action-ref: "actions/hello-world-javascript-action@v1.1"
+          who-to-greet: "Hello World"
+          step: "hello-world"
+          attestations: "command environment"
+          outfile: "./hello-world.json"
+          
+      - name: Verify hello-world action ran
+        run: |
+          if [[ -f "./hello-world.json" ]]; then
+            echo "Hello world attestation created successfully"
+            jq . "./hello-world.json" | head -n 20
+          else
+            echo "Hello world attestation file not found!"
+            exit 1
+          fi
 
+  test-input-forwarding:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Run nested action with wrapper (using time)
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+          
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run input forwarding test
         uses: ./
+        id: input-test
         with:
-          action-ref: "actions/hello-world-javascript@v1"
-          wrapper-command: "time"
-          who-to-greet: "Mona the Octocat"
+          action-ref: "actions/hello-world-javascript-action@v1.1"
+          who-to-greet: "Input Forwarding"
+          step: "input-forwarding"
+          attestations: "command environment"
+          outfile: "./input-forward.json"
+          
+      - name: Verify input forwarding
+        run: |
+          if [[ -f "./input-forward.json" ]]; then
+            echo "Input forwarding attestation created successfully"
+            jq . "./input-forward.json" | head -n 20
+          else
+            echo "Input forwarding attestation file not found!"
+            exit 1
+          fi
