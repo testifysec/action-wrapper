@@ -513,6 +513,13 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   core.info(`Running witness command: ${commandString}`);
   
   // Set up options for execution
+
+  //debug print env vars
+  console.log("Environment variables for nested action:");
+  console.log
+  for (const key in envVars) {
+    console.log(key + ": " + envVars[key]);
+  }
   const execOptions = {
     cwd: actionDir,
     env: process.env,
