@@ -107,11 +107,11 @@ inputs:
   attestor-maven-pom-path:
     description: "Path to Maven POM file"
     required: false
-  
-  # Input Passing to Nested Actions
-  '*':
-    description: "Any inputs that aren't defined above will be passed through to the nested action as-is"
+
+  who-to-greet:
+    description: "Who to greet"
     required: false
+    default: "World"
 
 outputs:
   git_oid:

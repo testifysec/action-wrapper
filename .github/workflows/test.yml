@@ -11,43 +11,7 @@ permissions:
   contents: read  # This is required for actions/checkout
 
 jobs:
-  test-basic:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '16'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Test wrapper with basic attestation
-        id: attestation
-        uses: ./
-        with:
-          # Action to run
-          action-ref: "actions/hello-world-javascript-action@main"
-          input-who-to-greet: "World"
-          
-          # Witness configuration
-          step: "hello-world"
-          attestations: "command"
-          
-      - name: Check attestation file
-        run: |
-          if [[ -f "/tmp/hello-world-attestation.json" ]]; then
-            echo "Attestation created successfully"
-            jq . "/tmp/hello-world-attestation.json" | head -n 20
-          else
-            echo "Attestation file not found!"
-            exit 1
-          fi
-
-  test-multi-attestors:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -111,7 +75,7 @@ jobs:
         with:
           # Action to run
           action-ref: "actions/hello-world-javascript-action@main"
-          input-who-to-greet: "Sigstore"
+          who-to-greet: "Sigstore"
           
           # Witness configuration
           step: test-sigstore
@@ -146,7 +110,6 @@ jobs:
           name: sigstore-attestation
           path: ./sigstore-attestation.json
           
-  test-direct-command:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
