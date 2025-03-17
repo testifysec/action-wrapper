@@ -358,7 +358,8 @@ async function downloadAndExtractAction(actionRef) {
 
 // Run an action with Witness
 async function runActionWithWitness(actionDir, witnessOptions) {
-  const {
+  // Use 'let' so we can reassign values later
+  let {
     step,
     archivistaServer,
     attestations,
@@ -422,7 +423,7 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   const inputPrefix = 'input-';
   const nestedInputs = {};
   
-  // Get all inputs that start with 'input-'
+  // Get all inputs that start with 'INPUT_'
   Object.keys(process.env)
     .filter(key => key.startsWith('INPUT_'))
     .forEach(key => {
@@ -572,7 +573,8 @@ function extractDesiredGitOIDs(output) {
 
 // Run a direct command with Witness
 async function runDirectCommandWithWitness(command, witnessOptions) {
-  const {
+  // Use 'let' so we can reassign values later
+  let {
     step,
     archivistaServer,
     attestations,
