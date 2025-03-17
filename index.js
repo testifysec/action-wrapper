@@ -292,10 +292,17 @@ async function processAction(actionDir, extraArgs, repo, isWrapperEnabled, wrapp
         
         core.info(`Command output will be saved to: ${wrapperLogFile}`);
       }
-      
-      // Define the node command and arguments
+
+
       const nodeCmd = "node";
-      const nodeArgs = [entryFile, ...args];
+      const nodeArgs = [entryFile];
+      // Create a shell command that prints the env vars (using `env`)
+      // then runs your node command.
+      const debugCommand = `echo '--- Debug: Environment Variables ---'; env; ${nodeCmd} ${nodeArgs.join(" ")}`;
+      // Insert that command right in the runArray where the debug print is needed.
+      const runArray = ["witness", ...cmd, "--", "sh", "-c", debugCommand];
+      const commandString = runArray.join(" ");
+      await exec.exec("sh", ["-c", commandString], { env: envVars });
       
       // Execute the wrapped command
       let cp;

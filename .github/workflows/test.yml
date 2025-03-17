@@ -25,13 +25,13 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Test wrapper with time command
         id: time-test
         uses: ./
         with:
           action-ref: "actions/hello-world-javascript-action@main"
-          wrapper-command: "time -v"
+          wrapper-command: "witness run -a=environment -a=github -a=slsa --attestor-slsa-export --enable-archivista=true --signer-fulcio-url=https://fulcio.sigstore.dev --signer-fulcio-oidc-client-id=sigstore --signer-fulcio-oidc-issuer=https://oauth2.sigstore.dev/auth -s=test-sigstore --timestamp-servers=https://freetsa.org/tsr --"
           input-who-to-greet: "Time"
       
       - name: Check time output
