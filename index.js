@@ -515,7 +515,7 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   // Set up options for execution
   const execOptions = {
     cwd: actionDir,
-    env: envVars,
+    env: process.env,
     listeners: {
       stdout: (data) => {
         process.stdout.write(data.toString());
