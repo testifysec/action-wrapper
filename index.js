@@ -275,6 +275,7 @@ async function runActionWithWitness(actionDir, witnessOptions) {
     mavenPOM,
   } = witnessOptions;
 
+  // Read the nested action metadata (action.yml or action.yaml)
   const actionYmlPath = path.join(actionDir, "action.yml");
   const actionYamlPath = path.join(actionDir, "action.yaml");
   let actionConfig;
@@ -290,31 +291,26 @@ async function runActionWithWitness(actionDir, witnessOptions) {
     throw new Error("Entry point (runs.main) not defined in action metadata");
   }
   core.info(`Nested action entry point: ${entryPoint}`);
+
   const entryFile = path.join(actionDir, entryPoint);
   if (!fs.existsSync(entryFile)) {
     throw new Error(`Entry file ${entryFile} does not exist.`);
   }
+
+  // Optionally install dependencies if package.json exists
   const pkgJsonPath = path.join(actionDir, "package.json");
   if (fs.existsSync(pkgJsonPath)) {
     core.info("Installing dependencies for nested action...");
     await exec.exec("npm", ["install"], { cwd: actionDir });
   }
 
-  // FIX: Explicitly gather and inject INPUT_* variables.
-  const nestedInputs = {};
-  Object.keys(process.env)
-    .filter(key => key.startsWith('INPUT_'))
-    .forEach(key => {
-      const inputName = key.substring(6).toLowerCase();
-      nestedInputs[inputName] = process.env[key];
-      core.info(`Passing input '${inputName}' to nested action`);
-    });
-  // Merge with process.env so that the child gets all environment variables.
+  // Build environment by merging process.env (ensuring all INPUT_* variables pass)
   const envVars = { ...process.env };
-  Object.keys(nestedInputs).forEach(name => {
-    envVars[`INPUT_${name.toUpperCase()}`] = nestedInputs[name];
-  });
+  // (Optionally, override specific inputs explicitly if needed)
+  // For example:
+  // envVars["INPUT_WHO-TO-GREET"] = core.getInput("who-to-greet");
 
+  // Build the witness command argument array.
   const cmd = ["run"];
   if (enableSigstore) {
     fulcio = fulcio || "https://fulcio.sigstore.dev";
@@ -364,37 +360,41 @@ async function runActionWithWitness(actionDir, witnessOptions) {
   }
   if (trace) cmd.push(`--trace=${trace}`);
   if (outfile) cmd.push(`--outfile=${outfile}`);
-  
-  const nodeCmd = 'node';
+
+  // Build argument array for the nested action execution
+  const nodeCmd = "node";
   const nodeArgs = [entryFile];
-  const runArray = ["witness", ...cmd, "--", nodeCmd, ...nodeArgs];
-  const commandString = runArray.join(" ");
-  core.info(`Running witness command: ${commandString}`);
-  
-  console.log("Environment variables for nested action:");
-  for (const key in envVars) {
-    console.log(key + ": " + envVars[key]);
-  }
-  
+  const args = [...cmd, "--", nodeCmd, ...nodeArgs];
+  core.info(`Running witness command: witness ${args.join(" ")}`);
+
   const execOptions = {
     cwd: actionDir,
     env: envVars,
     listeners: {
-      stdout: data => process.stdout.write(data.toString()),
-      stderr: data => process.stderr.write(data.toString())
+      stdout: (data) => process.stdout.write(data.toString()),
+      stderr: (data) => process.stderr.write(data.toString())
     }
   };
-  let output = '';
-  await exec.exec('sh', ['-c', commandString], {
+
+  let output = "";
+  // Directly call the witness binary without using a shell.
+  await exec.exec("witness", args, {
     ...execOptions,
     listeners: {
       ...execOptions.listeners,
-      stdout: data => { output += data.toString(); process.stdout.write(data.toString()); },
-      stderr: data => { output += data.toString(); process.stderr.write(data.toString()); }
+      stdout: (data) => {
+        output += data.toString();
+        process.stdout.write(data.toString());
+      },
+      stderr: (data) => {
+        output += data.toString();
+        process.stderr.write(data.toString());
+      }
     }
   });
   return output;
 }
+
 
 async function runDirectCommandWithWitness(command, witnessOptions) {
   let {
